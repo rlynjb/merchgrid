@@ -29,6 +29,24 @@ export function findingFor(
   };
 }
 
+export function groupBy<T>(
+  items: T[],
+  keyFn: (item: T) => string | null,
+): Map<string, T[]> {
+  const groups = new Map<string, T[]>();
+
+  for (const item of items) {
+    const key = keyFn(item);
+    if (key === null) continue;
+
+    const group = groups.get(key) ?? [];
+    group.push(item);
+    groups.set(key, group);
+  }
+
+  return groups;
+}
+
 export function normalizeSku(s: string | null): string | null {
   if (s === null) return null;
   const trimmed = s.trim().toLowerCase();

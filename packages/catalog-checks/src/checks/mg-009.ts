@@ -1,7 +1,7 @@
-import type { Money, NormalizedVariant } from "@merchgrid/catalog-core";
+import type { Money } from "@merchgrid/catalog-core";
 import type { CatalogCheck } from "../contract.js";
 import { eq } from "../money.js";
-import { findingFor, normalizeSku } from "./_helpers.js";
+import { findingFor, groupBy, normalizeSku } from "./_helpers.js";
 
 const CHECK_ID = "mg-009";
 
@@ -16,16 +16,7 @@ export const mg009: CatalogCheck = {
   name: "Duplicate SKU has conflicting price or cost",
   description: "Flags variants sharing a SKU whose price or unit cost disagree.",
   run(ctx) {
-    const groups = new Map<string, NormalizedVariant[]>();
-
-    for (const v of ctx.variants) {
-      const normalizedSku = normalizeSku(v.sku);
-      if (normalizedSku === null) continue;
-
-      const group = groups.get(normalizedSku) ?? [];
-      group.push(v);
-      groups.set(normalizedSku, group);
-    }
+    const groups = groupBy(ctx.variants, (v) => normalizeSku(v.sku));
 
     const findings = [];
     for (const group of groups.values()) {

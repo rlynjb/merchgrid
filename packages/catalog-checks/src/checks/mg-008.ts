@@ -1,7 +1,6 @@
-import type { NormalizedVariant } from "@merchgrid/catalog-core";
 import type { CatalogCheck } from "../contract.js";
 import { gt, lt, median, mul } from "../money.js";
-import { findingFor } from "./_helpers.js";
+import { findingFor, groupBy } from "./_helpers.js";
 
 const CHECK_ID = "mg-008";
 
@@ -10,13 +9,7 @@ export const mg008: CatalogCheck = {
   name: "Variant price is an outlier within its product",
   description: "Flags variants priced far away from the median price within their product.",
   run(ctx) {
-    const groups = new Map<string, NormalizedVariant[]>();
-
-    for (const v of ctx.variants) {
-      const group = groups.get(v.productId) ?? [];
-      group.push(v);
-      groups.set(v.productId, group);
-    }
+    const groups = groupBy(ctx.variants, (v) => v.productId);
 
     const findings = [];
     for (const group of groups.values()) {

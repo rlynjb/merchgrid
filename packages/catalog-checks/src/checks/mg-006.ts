@@ -1,6 +1,5 @@
-import type { NormalizedVariant } from "@merchgrid/catalog-core";
 import type { CatalogCheck } from "../contract.js";
-import { findingFor, normalizeBarcode } from "./_helpers.js";
+import { findingFor, groupBy, normalizeBarcode } from "./_helpers.js";
 
 const CHECK_ID = "mg-006";
 
@@ -9,16 +8,7 @@ export const mg006: CatalogCheck = {
   name: "Duplicate barcode",
   description: "Flags variants that share a normalized barcode with other variants.",
   run(ctx) {
-    const groups = new Map<string, NormalizedVariant[]>();
-
-    for (const v of ctx.variants) {
-      const normalizedBarcode = normalizeBarcode(v.barcode);
-      if (normalizedBarcode === null) continue;
-
-      const group = groups.get(normalizedBarcode) ?? [];
-      group.push(v);
-      groups.set(normalizedBarcode, group);
-    }
+    const groups = groupBy(ctx.variants, (v) => normalizeBarcode(v.barcode));
 
     const findings = [];
     for (const group of groups.values()) {
