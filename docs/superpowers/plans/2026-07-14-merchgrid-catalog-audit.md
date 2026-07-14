@@ -452,6 +452,8 @@ export interface CatalogCheck {
 
 Checks are **pure** — no Shopify/DB calls (spec §8.3). Each check is a task: failing test → implement → pass → commit. Use `decimal.js` for every comparison. `detectedAt` comes from `ctx.now` (never `Date.now()` inside a check) so tests are deterministic.
 
+> **Engine → downstream contract (locked by the final engine review).** A `CatalogFinding` is a deliberately *lean* projection: it always carries `shopId`, `productId`, `variantId`, titles, `adminUrl`, `checkId`, `severity`, `explanation`, and a **per-check** `evidence` bag. It does **not** carry the full money/identity column set, and `evidence` shapes differ by check — so **do not** source the CSV/UI columns from `evidence`. Instead, the report/export layer (Task F3, F7) **joins each finding back to the scan's persisted variant data by `(shopId, variantId)`** to fill `price/compare_at_price/unit_cost/currency/sku/barcode/product_status`, and computes `margin_amount = price − unitCost` there (add a `marginAmount(price, cost)` decimal helper to `money.ts` at that point — the engine intentionally does not pre-compute it). `checkId` is the lowercase kebab id (`mg-001`); the UI maps it to the display name/`MG-001` label. **Code-vs-spec deltas to honor (code wins):** MG-004 guards `compareAtPrice > 0` and downgrades the equal-to-price case to WARNING (spec §8.2 still says Critical/"when present" — stale); MG-003 is suppressed when `price < unitCost` so it never double-counts MG-002. MG-005 and MG-009 intentionally *both* fire on a conflicting duplicate-SKU variant (two distinct WARNINGs) — the UI groups by variant, it does not dedupe them.
+
 ### Task D1: Contract + `runChecks` registry + money helpers
 
 **Files:** Create `app/packages/catalog-checks/src/contract.ts`, `.../src/money.ts`, `.../src/run.ts`; Test: `.../tests/money.test.ts`
@@ -591,7 +593,7 @@ _Polaris components inside the embedded app. UI tasks: build the route, load it 
 ### Task F7: CSV export
 **Files:** `app/app/routes/api.scans.$id.export.tsx`; Test: `app/tests/csv.test.ts`
 - [ ] **Step 1:** Test CSV escaping: titles with commas/quotes/newlines stay valid; UTF-8 preserved; ISO-8601 timestamp; exact column order from spec §9.6.
-- [ ] **Step 2:** FAIL → implement with `csv-stringify`, exports **all** findings by default (filters only if labeled — FR-EXP-002), filename `merchgrid-catalog-audit-findings-{shop}-{YYYY-MM-DD}.csv`, generated on demand, not persisted (spec §9.6, §10.6).
+- [ ] **Step 2:** FAIL → implement with `csv-stringify`, exports **all** findings by default (filters only if labeled — FR-EXP-002), filename `merchgrid-catalog-audit-findings-{shop}-{YYYY-MM-DD}.csv`, generated on demand, not persisted (spec §9.6, §10.6). **Fill money/identity columns via the engine→downstream contract above:** join each `Finding` to its persisted variant snapshot by `(shopId, variantId)` for `price/compare_at_price/unit_cost/currency/sku/barcode/product_status`; do NOT read them from `evidence`. Compute `margin_amount = price − unitCost` with a new `marginAmount` decimal helper, and format money to 2 decimals at this boundary (the decimal helpers strip trailing zeros — e.g. `sub` returns `"2"`, not `"2.00"`).
 - [ ] **Step 3:** PASS. Commit `feat: CSV export`.
 
 ---
