@@ -80,7 +80,7 @@ function rowFields({ finding, variant }: CsvRowInput, meta: CsvMeta): string[] {
     variant.sku ?? "",
     variant.barcode ?? "",
     finding.explanation,
-    finding.adminUrl,
+    variant.adminUrl,
   ];
 }
 
