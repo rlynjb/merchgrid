@@ -21,6 +21,21 @@ export function sub(a: Money, b: Money): string {
   return new Decimal(a).minus(new Decimal(b)).toString();
 }
 
+export function mul(a: Money, b: Money): string {
+  return new Decimal(a).times(new Decimal(b)).toString();
+}
+
+export function median(values: Money[]): string {
+  const sorted = [...values].map((v) => new Decimal(v)).sort((a, b) => a.comparedTo(b));
+  const mid = Math.floor(sorted.length / 2);
+
+  if (sorted.length % 2 === 1) {
+    return sorted[mid]!.toString();
+  }
+
+  return sorted[mid - 1]!.plus(sorted[mid]!).dividedBy(2).toString();
+}
+
 export function marginPercent(price: Money, cost: Money | null): number | null {
   if (cost === null) return null;
 

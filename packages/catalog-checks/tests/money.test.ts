@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { eq, gt, lt, lte, marginPercent, sub } from "../src/money.js";
+import { eq, gt, lt, lte, marginPercent, median, mul, sub } from "../src/money.js";
 
 describe("money helpers", () => {
   it("lt compares decimal strings correctly", () => {
@@ -38,5 +38,17 @@ describe("money helpers", () => {
 
   it("marginPercent returns null when price is zero", () => {
     expect(marginPercent("0", "5.00")).toBeNull();
+  });
+
+  it("mul multiplies decimal strings without float drift", () => {
+    expect(eq(mul("11", "4"), "44")).toBe(true);
+  });
+
+  it("median returns the middle value for an odd-length list", () => {
+    expect(eq(median(["10", "11", "100"]), "11")).toBe(true);
+  });
+
+  it("median averages the two middle values for an even-length list", () => {
+    expect(eq(median(["10", "20", "30", "40"]), "25")).toBe(true);
   });
 });
