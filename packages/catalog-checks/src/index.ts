@@ -10,3 +10,6 @@ export { mg001 } from "./checks/mg-001.js";
 export { mg002 } from "./checks/mg-002.js";
 export { mg003 } from "./checks/mg-003.js";
 export { mg004 } from "./checks/mg-004.js";
+export { mg005 } from "./checks/mg-005.js";
+export { mg006 } from "./checks/mg-006.js";
+export { mg007 } from "./checks/mg-007.js";

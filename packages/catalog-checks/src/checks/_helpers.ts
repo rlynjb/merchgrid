@@ -28,3 +28,15 @@ export function findingFor(
     detectedAt: ctx.now,
   };
 }
+
+export function normalizeSku(s: string | null): string | null {
+  if (s === null) return null;
+  const trimmed = s.trim().toLowerCase();
+  return trimmed === "" ? null : trimmed;
+}
+
+export function normalizeBarcode(s: string | null): string | null {
+  if (s === null) return null;
+  const trimmed = s.trim();
+  return trimmed === "" ? null : trimmed;
+}
