@@ -36,6 +36,14 @@ export function median(values: Money[]): string {
   return sorted[mid - 1]!.plus(sorted[mid]!).dividedBy(2).toString();
 }
 
+export function marginAmount(price: Money, cost: Money): string {
+  return new Decimal(price).minus(new Decimal(cost)).toString();
+}
+
+export function formatMoney(value: Money, decimalPlaces = 2): string {
+  return new Decimal(value).toFixed(decimalPlaces, Decimal.ROUND_HALF_UP);
+}
+
 export function marginPercent(price: Money, cost: Money | null): number | null {
   if (cost === null) return null;
 

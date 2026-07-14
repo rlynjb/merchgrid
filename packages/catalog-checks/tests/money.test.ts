@@ -1,5 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { eq, gt, lt, lte, marginPercent, median, mul, sub } from "../src/money.js";
+import {
+  eq,
+  formatMoney,
+  gt,
+  lt,
+  lte,
+  marginAmount,
+  marginPercent,
+  median,
+  mul,
+  sub,
+} from "../src/money.js";
 
 describe("money helpers", () => {
   it("lt compares decimal strings correctly", () => {
@@ -50,5 +61,26 @@ describe("money helpers", () => {
 
   it("median averages the two middle values for an even-length list", () => {
     expect(eq(median(["10", "20", "30", "40"]), "25")).toBe(true);
+  });
+
+  it("marginAmount subtracts cost from price as a decimal string", () => {
+    expect(eq(marginAmount("10.00", "8.00"), "2")).toBe(true);
+  });
+
+  it("marginAmount can be negative", () => {
+    expect(eq(marginAmount("8.00", "10.00"), "-2")).toBe(true);
+  });
+
+  it("formatMoney pads to two decimal places by default", () => {
+    expect(formatMoney("2")).toBe("2.00");
+    expect(formatMoney("9.9")).toBe("9.90");
+  });
+
+  it("formatMoney rounds half-up at the default precision", () => {
+    expect(formatMoney("10.005")).toBe("10.01");
+  });
+
+  it("formatMoney supports a custom decimal-places count", () => {
+    expect(formatMoney("12.3", 0)).toBe("12");
   });
 });
