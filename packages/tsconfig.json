@@ -1,0 +1,7 @@
+{
+  "files": [],
+  "references": [
+    { "path": "./catalog-core" },
+    { "path": "./catalog-checks" }
+  ]
+}
