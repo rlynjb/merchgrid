@@ -57,8 +57,8 @@ Exit: You can log into `merchgrid-dev.myshopify.com/admin` and the Partner Dashb
 
 ### Task A2: Install toolchain
 
-- [ ] **Step 1:** Confirm Node 20 (`node -v` → `v20.x`; this repo already has it).
-- [ ] **Step 2:** Install Shopify CLI globally.
+- [ ] **Step 1:** Confirm **Node 22+** (`node -v` → `v22.x` or newer). **Node 20 will NOT work** — the current Shopify CLI imports `enableCompileCache` from `node:module`, which only exists in Node ≥ 22.8, so it hard-crashes with `SyntaxError` on Node 20. If you manage Node via the `~/.local/node` symlink, download the Node 22 LTS `darwin-arm64` tarball into `~/.local` and repoint the symlink (`ln -sfn node-v22.x.y-darwin-arm64 ~/.local/node`). Reinstall the global Shopify CLI afterward (global packages live under the old Node's dir and don't carry over).
+- [ ] **Step 2:** Install Shopify CLI globally (under Node 22).
 
 ```bash
 npm install -g @shopify/cli@latest
