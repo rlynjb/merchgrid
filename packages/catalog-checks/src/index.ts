@@ -5,7 +5,9 @@ export type {
   FindingSeverity,
 } from "./contract.js";
 export { ALL_CHECKS, runChecks } from "./run.js";
-export { eq, gt, lt, lte, marginPercent, sub } from "./money.js";
+export { eq, formatMoney, gt, lt, lte, marginAmount, marginPercent, sub } from "./money.js";
+export type { CsvMeta, CsvRowInput } from "./csv.js";
+export { escapeCsvField, findingsToCsv } from "./csv.js";
 export { mg001 } from "./checks/mg-001.js";
 export { mg002 } from "./checks/mg-002.js";
 export { mg003 } from "./checks/mg-003.js";
