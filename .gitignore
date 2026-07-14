@@ -1,3 +1,6 @@
 node_modules/
 dist/
 *.tsbuildinfo
+
+# Superpowers subagent-driven-development progress ledger (scratch)
+.superpowers/
