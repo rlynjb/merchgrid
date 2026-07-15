@@ -1,3 +1,16 @@
 .cache
 build
 node_modules
+.git
+.github
+.shopify
+.shopify.lock
+.env
+.env.*
+prisma/dev.sqlite
+prisma/dev.sqlite-journal
+prisma/test.sqlite
+prisma/test.sqlite-journal
+database.sqlite
+*.sqlite
+*.sqlite-journal

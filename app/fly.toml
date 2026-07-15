@@ -1,0 +1,50 @@
+# Fly.io config for MerchGrid: Catalog Audit.
+#
+# Topology: ONE always-on machine running both the Remix web server and
+# the catalog-audit background worker (see start-production.js), backed by
+# a single SQLite database on a Fly volume mounted at /data. There is
+# intentionally no `[processes]` block — that would let Fly schedule web
+# and worker as separate machines, which cannot both mount the same
+# volume, and this deploy has exactly one SQLite writer by design.
+
+app = "merchgrid-catalog-audit"
+
+# Set this to the region you actually provision the volume in — the
+# machine and the volume must be in the same region. Pick one close to
+# your dev store / users, e.g. "iad" (Virginia), "lhr" (London), etc.
+# primary_region = "iad"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  # App-facing DB path only. This is not a secret — it's just a file path
+  # inside the container. SHOPIFY_API_KEY, SHOPIFY_API_SECRET, SCOPES,
+  # SHOPIFY_APP_URL, and SESSION_SECRET are set with `fly secrets set`
+  # instead (see DEPLOY.md) and must NOT be duplicated here.
+  DATABASE_URL = "file:/data/prod.sqlite"
+
+# The persistent volume holding the SQLite database. Create it once with
+# `fly volumes create data --size 1 --region <region>` before the first
+# deploy (see DEPLOY.md) — `fly deploy` does not create volumes for you.
+[mounts]
+  source = "data"
+  destination = "/data"
+
+[http_service]
+  internal_port = 3000
+  force_https = true
+  # Always-on: the worker must keep running to drain the scan queue even
+  # with no inbound HTTP traffic, so the machine can never be auto-stopped
+  # and there must always be at least one running.
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[http_service.checks]]
+    grace_period = "10s"
+    interval = "15s"
+    method = "GET"
+    path = "/healthz"
+    protocol = "http"
+    timeout = "5s"
