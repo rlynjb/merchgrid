@@ -364,6 +364,65 @@ describe("getScanFindings", () => {
     expect(byTitle.total).toBe(1);
   });
 
+  it("applies pagination AFTER filtering: total is the filtered count and the slice indexes into the filtered set", async () => {
+    const shop = await seedShop("scan-api-findings-page-after-filter.myshopify.com");
+    const scan = await seedScan(shop.id);
+
+    // 3 CRITICAL + 2 WARNING. Distinct checkIds so the filtered set has a
+    // deterministic sort order (severity then checkId).
+    await seedFinding(scan.id, shop.id, { checkId: "crit-a", severity: "CRITICAL" });
+    await seedFinding(scan.id, shop.id, { checkId: "crit-b", severity: "CRITICAL" });
+    await seedFinding(scan.id, shop.id, { checkId: "crit-c", severity: "CRITICAL" });
+    await seedFinding(scan.id, shop.id, { checkId: "warn-a", severity: "WARNING" });
+    await seedFinding(scan.id, shop.id, { checkId: "warn-b", severity: "WARNING" });
+
+    const page2 = await getScanFindings(shop.shopDomain, scan.id, {
+      severity: "CRITICAL",
+      page: 2,
+      pageSize: 2,
+    });
+
+    // total reflects the FILTERED count (3 criticals), not all 5 findings.
+    expect(page2.total).toBe(3);
+    // page 2 of a filtered set of 3 with pageSize 2 => exactly 1 row (the 3rd
+    // critical), proving the slice indexes into the filtered set, not the full 5.
+    expect(page2.findings).toHaveLength(1);
+    expect(page2.findings[0].severity).toBe("CRITICAL");
+    expect(page2.findings[0].checkId).toBe("crit-c");
+  });
+
+  it("composes multiple filters with AND semantics", async () => {
+    const shop = await seedShop("scan-api-findings-combined-filters.myshopify.com");
+    const scan = await seedScan(shop.id);
+
+    // Only this row matches BOTH severity=CRITICAL AND search "hoodie".
+    await seedFinding(scan.id, shop.id, {
+      checkId: "match-both",
+      severity: "CRITICAL",
+      productTitle: "Vintage Hoodie",
+    });
+    // Right severity, wrong search term.
+    await seedFinding(scan.id, shop.id, {
+      checkId: "crit-no-search",
+      severity: "CRITICAL",
+      productTitle: "Plain Tee",
+    });
+    // Right search term, wrong severity.
+    await seedFinding(scan.id, shop.id, {
+      checkId: "warn-with-search",
+      severity: "WARNING",
+      productTitle: "Deluxe Hoodie",
+    });
+
+    const page = await getScanFindings(shop.shopDomain, scan.id, {
+      severity: "CRITICAL",
+      search: "hoodie",
+    });
+
+    expect(page.findings.map((f) => f.checkId)).toEqual(["match-both"]);
+    expect(page.total).toBe(1);
+  });
+
   it("computes server-side margin fields when both price and unitCost are present, and null otherwise", async () => {
     const shop = await seedShop("scan-api-findings-margin.myshopify.com");
     const scan = await seedScan(shop.id);

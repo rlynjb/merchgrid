@@ -1,6 +1,6 @@
 import prisma from "../../db.server";
 import { enqueueScan, getActiveScan } from "./queue.server";
-import type { Scan } from "@prisma/client";
+import type { Prisma, Scan } from "@prisma/client";
 import { formatMoney, marginAmount, marginPercent } from "@merchgrid/catalog-checks";
 
 /**
@@ -251,7 +251,7 @@ export async function getScanFindings(
     MAX_PAGE_SIZE,
   );
 
-  const where: Record<string, unknown> = { scanId: scan.id };
+  const where: Prisma.FindingWhereInput = { scanId: scan.id };
   if (opts.severity) {
     where.severity = opts.severity;
   }
