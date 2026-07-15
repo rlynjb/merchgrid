@@ -3,9 +3,11 @@ import { authenticate } from "../shopify.server";
 import { redactShop } from "../models/shop.server";
 
 export const action = async ({ request }: ActionFunctionArgs) => {
-  const { topic, shop, payload } = await authenticate.webhook(request);
+  const { topic, shop } = await authenticate.webhook(request);
 
-  console.log(`Received ${topic} webhook for ${shop}`, payload);
+  // Do NOT log the payload: customers/data_request and customers/redact
+  // payloads contain customer PII (id, email, phone). Log topic + shop only.
+  console.log(`Received compliance webhook ${topic} for ${shop}`);
 
   switch (topic) {
     case "CUSTOMERS_DATA_REQUEST":
