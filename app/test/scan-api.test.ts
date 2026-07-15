@@ -4,6 +4,7 @@ import { CATALOG_API_VERSION } from "../app/config";
 import { ActiveScanError } from "../app/services/scan/queue.server";
 import {
   ScanNotFoundError,
+  ScanNotCompletedError,
   startScan,
   getScanSummary,
   getScanFindings,
@@ -109,8 +110,10 @@ describe("startScan", () => {
     await expect(startScan(shop.shopDomain)).rejects.toThrow(ActiveScanError);
   });
 
-  it("throws when the shop domain does not resolve to a known shop", async () => {
-    await expect(startScan("no-such-shop.myshopify.com")).rejects.toThrow();
+  it("throws ScanNotFoundError when the shop domain does not resolve to a known shop", async () => {
+    await expect(
+      startScan("no-such-shop.myshopify.com"),
+    ).rejects.toThrow(ScanNotFoundError);
   });
 });
 
@@ -581,6 +584,45 @@ describe("getAllFindingsForExport", () => {
 
     await expect(
       getAllFindingsForExport(shop.shopDomain, "does-not-exist"),
+    ).rejects.toThrow(ScanNotFoundError);
+  });
+
+  it("throws ScanNotCompletedError when the scan is still QUEUED", async () => {
+    const shop = await seedShop("scan-api-export-queued.myshopify.com");
+    const scan = await seedScan(shop.id, { status: "QUEUED" });
+
+    await expect(
+      getAllFindingsForExport(shop.shopDomain, scan.id),
+    ).rejects.toThrow(ScanNotCompletedError);
+  });
+
+  it("throws ScanNotCompletedError when the scan is still RUNNING_CHECKS", async () => {
+    const shop = await seedShop("scan-api-export-running.myshopify.com");
+    const scan = await seedScan(shop.id, { status: "RUNNING_CHECKS" });
+
+    await expect(
+      getAllFindingsForExport(shop.shopDomain, scan.id),
+    ).rejects.toThrow(ScanNotCompletedError);
+  });
+
+  it("returns findings for a COMPLETED scan (status gate allows it through)", async () => {
+    const shop = await seedShop("scan-api-export-completed.myshopify.com");
+    const scan = await seedScan(shop.id, { status: "COMPLETED" });
+    await seedFinding(scan.id, shop.id, { checkId: "check-completed" });
+
+    const result = await getAllFindingsForExport(shop.shopDomain, scan.id);
+
+    expect(result.summary.status).toBe("COMPLETED");
+    expect(result.findings).toHaveLength(1);
+  });
+
+  it("authz precedence: a wrong-owner request for a non-completed scan still throws ScanNotFoundError, not ScanNotCompletedError", async () => {
+    const shopA = await seedShop("scan-api-export-authz-precedence-a.myshopify.com");
+    const shopB = await seedShop("scan-api-export-authz-precedence-b.myshopify.com");
+    const scan = await seedScan(shopA.id, { status: "QUEUED" });
+
+    await expect(
+      getAllFindingsForExport(shopB.shopDomain, scan.id),
     ).rejects.toThrow(ScanNotFoundError);
   });
 });

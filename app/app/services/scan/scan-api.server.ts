@@ -13,6 +13,17 @@ import { formatMoney, marginAmount, marginPercent } from "@merchgrid/catalog-che
  */
 export class ScanNotFoundError extends Error {}
 
+/**
+ * Thrown by `getAllFindingsForExport` when the caller owns the scan but it
+ * hasn't reached `COMPLETED` yet. A non-completed scan's findings are still
+ * being written (or don't exist yet), so exporting it now would produce a
+ * misleading CSV — e.g. `scannedAt` falling back to "now" instead of the
+ * scan's actual completion time. Checked *after* ownership (see
+ * `loadOwnedScan`) so a wrong-shop request still resolves to
+ * `ScanNotFoundError`, never leaking another tenant's scan status.
+ */
+export class ScanNotCompletedError extends Error {}
+
 const DEFAULT_PAGE_SIZE = 50;
 const MAX_PAGE_SIZE = 200;
 
@@ -109,15 +120,15 @@ async function loadOwnedScan(shop: { id: string }, scanId: string) {
 }
 
 /**
- * Resolves the shop by domain and enqueues a new scan for it. Any
- * `ActiveScanError` from `enqueueScan` propagates unchanged so the route can
- * map it to a 409.
+ * Resolves the shop by domain and enqueues a new scan for it. Throws
+ * `ScanNotFoundError` if the shop domain doesn't resolve to a known shop
+ * (defensive/unreachable in practice: `authenticate.admin` implies the Shop
+ * row already exists) so the route can map it to a 404 instead of an
+ * unhandled 500. Any `ActiveScanError` from `enqueueScan` propagates
+ * unchanged so the route can map it to a 409.
  */
 export async function startScan(shopDomain: string): Promise<ScanSummary> {
-  const shop = await prisma.shop.findUnique({ where: { shopDomain } });
-  if (!shop) {
-    throw new Error(`Cannot start scan: unknown shop domain ${shopDomain}`);
-  }
+  const shop = await resolveShopOrThrow(shopDomain);
 
   const scan = await enqueueScan(shop.id);
   return toScanSummary(scan);
@@ -267,7 +278,10 @@ export async function getScanFindings(
  * Returns the scan summary plus every one of its findings — no pagination —
  * severity-sorted the same way as `getScanFindings`. Used by the CSV export
  * route, which needs the full result set in one shot. Same per-shop
- * authorization as `getScanSummary`.
+ * authorization as `getScanSummary`, checked *before* the completion gate so
+ * a wrong-owner request still gets `ScanNotFoundError` and never learns
+ * whether some other shop's scan has finished. Throws
+ * `ScanNotCompletedError` if the (owned) scan hasn't reached `COMPLETED` yet.
  */
 export async function getAllFindingsForExport(
   shopDomain: string,
@@ -275,6 +289,10 @@ export async function getAllFindingsForExport(
 ): Promise<{ summary: ScanSummary; findings: FindingRow[] }> {
   const shop = await resolveShopOrThrow(shopDomain);
   const scan = await loadOwnedScan(shop, scanId);
+
+  if (scan.status !== "COMPLETED") {
+    throw new ScanNotCompletedError(`Scan not completed: ${scanId}`);
+  }
 
   const rows = await prisma.finding.findMany({
     where: { scanId: scan.id },

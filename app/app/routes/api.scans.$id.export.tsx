@@ -3,6 +3,7 @@ import { ALL_CHECKS } from "@merchgrid/catalog-checks";
 import { authenticate } from "../shopify.server";
 import {
   ScanNotFoundError,
+  ScanNotCompletedError,
   getAllFindingsForExport,
 } from "../services/scan/scan-api.server";
 import { buildFindingsCsv } from "../services/scan/export.server";
@@ -17,7 +18,9 @@ const CHECK_NAMES: Record<string, string> = Object.fromEntries(
  * live in `getAllFindingsForExport`, formatting lives in the pure
  * `buildFindingsCsv`. Mirrors `api.scans.$id.tsx`'s handling of
  * `ScanNotFoundError` as a generic 404 so another tenant's scan id is never
- * confirmed to exist.
+ * confirmed to exist. A scan that exists but hasn't finished yet
+ * (`ScanNotCompletedError`) maps to 409 — exporting it now would produce a
+ * misleading CSV (e.g. `scannedAt` falling back to "now").
  */
 export const loader = async ({ request, params }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
@@ -37,6 +40,9 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
   } catch (error) {
     if (error instanceof ScanNotFoundError) {
       throw new Response("Not found", { status: 404 });
+    }
+    if (error instanceof ScanNotCompletedError) {
+      throw new Response("Scan is not complete", { status: 409 });
     }
     throw error;
   }

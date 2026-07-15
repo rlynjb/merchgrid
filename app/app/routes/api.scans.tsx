@@ -2,7 +2,7 @@ import type { ActionFunctionArgs } from "@remix-run/node";
 import { json } from "@remix-run/node";
 import { authenticate } from "../shopify.server";
 import { ActiveScanError } from "../services/scan/queue.server";
-import { startScan } from "../services/scan/scan-api.server";
+import { ScanNotFoundError, startScan } from "../services/scan/scan-api.server";
 
 /**
  * POST /api/scans — enqueue a new catalog audit scan for the authenticated
@@ -21,6 +21,9 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         { error: "A scan is already running for this shop." },
         { status: 409 },
       );
+    }
+    if (error instanceof ScanNotFoundError) {
+      return json({ error: "Not found" }, { status: 404 });
     }
     throw error;
   }
