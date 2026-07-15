@@ -37,3 +37,15 @@ export async function ensureShop(
 
   return shop;
 }
+
+/**
+ * Deletes all data for the given shop domain (GDPR `shop/redact` webhook,
+ * fired ~48h after uninstall). Deleting the Shop row cascades to its
+ * ShopSettings/Scan/Finding/ScanArtifact rows.
+ *
+ * Idempotent: if no Shop matches the domain (already redacted, or never
+ * existed), this is a no-op and does not throw.
+ */
+export async function redactShop(shopDomain: string): Promise<void> {
+  await prisma.shop.deleteMany({ where: { shopDomain } });
+}
