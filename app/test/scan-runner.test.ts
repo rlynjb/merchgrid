@@ -197,6 +197,12 @@ describe("runScan", () => {
     expect(mg002!.barcode).toBeNull();
     expect(mg002!.productStatus).toBe("ACTIVE");
 
+    // severityRank/searchText are denormalized at persist time so the
+    // findings table can be paginated/sorted/searched in SQL rather than in
+    // memory (spec §11.2).
+    expect(mg002!.severityRank).toBe(0);
+    expect(mg002!.searchText).toContain("sku-a1");
+
     const dupSkuFindings = findings.filter((f) => f.checkId === "mg-005");
     expect(dupSkuFindings.length).toBe(2);
     for (const f of dupSkuFindings) {

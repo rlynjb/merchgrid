@@ -6,6 +6,7 @@ import type { CatalogCheckContext } from "@merchgrid/catalog-checks";
 import prisma from "../../db.server";
 import { CATALOG_API_VERSION } from "../../config";
 import { assertTransition, type ScanStatus } from "./state";
+import { buildSearchText, severityToRank } from "./severity";
 
 const GENERIC_FAILURE_MESSAGE =
   "The scan could not be completed. Please try again.";
@@ -138,11 +139,14 @@ export async function runScan(
 
     const findingRows = findings.map((f) => {
       const variant = f.variantId ? variantsById.get(f.variantId) : undefined;
+      const sku = variant?.sku ?? null;
+      const barcode = variant?.barcode ?? null;
       return {
         scanId,
         shopId: shop.id,
         checkId: f.checkId,
         severity: f.severity,
+        severityRank: severityToRank(f.severity),
         productId: f.productId,
         variantId: f.variantId ?? null,
         productTitle: f.productTitle,
@@ -155,9 +159,10 @@ export async function runScan(
         compareAtPrice: variant?.compareAtPrice ?? null,
         unitCost: variant?.unitCost ?? null,
         currencyCode: variant?.currencyCode ?? null,
-        sku: variant?.sku ?? null,
-        barcode: variant?.barcode ?? null,
+        sku,
+        barcode,
         productStatus: variant?.productStatus ?? null,
+        searchText: buildSearchText([f.productTitle, f.variantTitle, sku, barcode]),
       };
     });
 
