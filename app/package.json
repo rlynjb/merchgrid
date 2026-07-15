@@ -2,7 +2,8 @@
   "name": "merchgrid-catalog-audit",
   "private": true,
   "scripts": {
-    "build": "remix vite:build",
+    "build": "npm run build:packages && remix vite:build",
+    "build:packages": "tsc -b packages/catalog-checks",
     "dev": "shopify app dev",
     "config:link": "shopify app config link",
     "generate": "shopify app generate",
@@ -17,13 +18,16 @@
     "prisma": "prisma",
     "graphql-codegen": "graphql-codegen",
     "vite": "vite",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:engine": "vitest run --config packages/vitest.config.ts"
   },
   "type": "module",
   "engines": {
     "node": ">=20.19 <22 || >=22.12"
   },
   "dependencies": {
+    "@merchgrid/catalog-checks": "*",
+    "@merchgrid/catalog-core": "*",
     "@prisma/client": "^6.2.1",
     "@remix-run/dev": "^2.16.1",
     "@remix-run/fs-routes": "^2.16.1",
@@ -57,7 +61,9 @@
     "vitest": "^4.1.10"
   },
   "workspaces": [
-    "extensions/*"
+    "extensions/*",
+    "packages/catalog-core",
+    "packages/catalog-checks"
   ],
   "trustedDependencies": [
     "@shopify/plugin-cloudflare"
