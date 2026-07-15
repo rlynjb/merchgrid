@@ -91,6 +91,10 @@ model Finding {
   shopId       String
   checkId      String
   severity     String
+  // Denormalized rank of `severity` (CRITICAL=0, WARNING=1, UNAVAILABLE=2),
+  // populated at persist time so findings can be ORDER BY'd in SQL instead
+  // of sorted in memory (spec §11.2). See app/services/scan/severity.ts.
+  severityRank Int
   productId    String
   variantId    String?
   productTitle String
@@ -111,7 +115,13 @@ model Finding {
   sku            String?
   barcode        String?
   productStatus  String?
+  // Lowercased, space-joined concatenation of productTitle/variantTitle/sku/
+  // barcode, populated at persist time so free-text search can run as a SQL
+  // case-insensitive `contains` (SQLite's `contains` is case-sensitive)
+  // instead of an in-memory filter. See app/services/scan/severity.ts.
+  searchText     String   @default("")
   @@index([scanId, severity])
+  @@index([scanId, severityRank, checkId])
 }
 
 model ScanArtifact {
