@@ -73,6 +73,7 @@ model Scan {
   failedAt                 DateTime?
   failureCode              String?
   failureMessageSafe       String?
+  partial                  Boolean   @default(false)
   findings                 Finding[]
   artifacts                ScanArtifact[]
   createdAt                DateTime  @default(now())
