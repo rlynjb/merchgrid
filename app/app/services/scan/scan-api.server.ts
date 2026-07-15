@@ -16,12 +16,6 @@ export class ScanNotFoundError extends Error {}
 const DEFAULT_PAGE_SIZE = 50;
 const MAX_PAGE_SIZE = 200;
 
-const SEVERITY_RANK: Record<string, number> = {
-  CRITICAL: 0,
-  WARNING: 1,
-  UNAVAILABLE: 2,
-};
-
 export interface ScanSummary {
   id: string;
   status: string;
@@ -212,18 +206,6 @@ function toFindingRow(f: {
   };
 }
 
-function sortBySeverityThenCheckId<T extends { severity: string; checkId: string }>(
-  rows: T[],
-): T[] {
-  return [...rows].sort((a, b) => {
-    const rankDiff =
-      (SEVERITY_RANK[a.severity] ?? Number.MAX_SAFE_INTEGER) -
-      (SEVERITY_RANK[b.severity] ?? Number.MAX_SAFE_INTEGER);
-    if (rankDiff !== 0) return rankDiff;
-    return a.checkId.localeCompare(b.checkId);
-  });
-}
-
 /**
  * Returns a paginated, severity-sorted page of findings for a scan owned by
  * `shopDomain`. Sort order: CRITICAL, then WARNING, then UNAVAILABLE, then
@@ -258,31 +240,25 @@ export async function getScanFindings(
   if (opts.checkId) {
     where.checkId = opts.checkId;
   }
-
-  const rows = await prisma.finding.findMany({ where });
-
   const search = opts.search?.trim().toLowerCase();
-  const filteredRows = search
-    ? rows.filter((row) => {
-        const haystacks = [
-          row.productTitle,
-          row.variantTitle,
-          row.sku,
-          row.barcode,
-        ];
-        return haystacks.some(
-          (value) => value != null && value.toLowerCase().includes(search),
-        );
-      })
-    : rows;
+  if (search) {
+    // `searchText` is a lowercased, space-joined concatenation of
+    // productTitle/variantTitle/sku/barcode, populated at persist time (see
+    // runner.server.ts). Lowercasing the query here + the stored column at
+    // write time gives us case-insensitive search via SQLite's
+    // case-sensitive `contains` (spec §11.2: no in-memory filtering).
+    where.searchText = { contains: search };
+  }
 
-  const total = filteredRows.length;
-  const sorted = sortBySeverityThenCheckId(filteredRows);
+  const total = await prisma.finding.count({ where });
+  const rows = await prisma.finding.findMany({
+    where,
+    orderBy: [{ severityRank: "asc" }, { checkId: "asc" }],
+    skip: (page - 1) * pageSize,
+    take: pageSize,
+  });
 
-  const start = (page - 1) * pageSize;
-  const pageRows = sorted.slice(start, start + pageSize);
-
-  const findings: FindingRow[] = pageRows.map(toFindingRow);
+  const findings: FindingRow[] = rows.map(toFindingRow);
 
   return { findings, total, page, pageSize };
 }
@@ -300,9 +276,11 @@ export async function getAllFindingsForExport(
   const shop = await resolveShopOrThrow(shopDomain);
   const scan = await loadOwnedScan(shop, scanId);
 
-  const rows = await prisma.finding.findMany({ where: { scanId: scan.id } });
-  const sorted = sortBySeverityThenCheckId(rows);
-  const findings: FindingRow[] = sorted.map(toFindingRow);
+  const rows = await prisma.finding.findMany({
+    where: { scanId: scan.id },
+    orderBy: [{ severityRank: "asc" }, { checkId: "asc" }],
+  });
+  const findings: FindingRow[] = rows.map(toFindingRow);
 
   return { summary: toScanSummary(scan), findings };
 }
