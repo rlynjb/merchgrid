@@ -2,7 +2,7 @@
 
 client_id = "8bac258ab3fa3ab35a32acabd2b1919b"
 name = "merchgrid-catalog-audit"
-application_url = "https://example.com"
+application_url = "https://merchgrid-catalog-audit.fly.dev"
 embedded = true
 
 [access_scopes]
@@ -29,7 +29,7 @@ api_version = "2026-07"
   shop_deletion_url = "/webhooks/compliance"
 
 [auth]
-redirect_urls = [ "https://example.com/api/auth" ]
+redirect_urls = [ "https://merchgrid-catalog-audit.fly.dev/api/auth" ]
 
 [build]
 include_config_on_deploy = true
