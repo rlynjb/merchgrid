@@ -1,7 +1,7 @@
 import prisma from "../db.server";
+import { MARGIN_MAX, MARGIN_MIN } from "./settings.shared";
 
-export const MARGIN_MIN = 0;
-export const MARGIN_MAX = 90;
+export { MARGIN_MIN, MARGIN_MAX };
 
 export class InvalidMarginError extends Error {}
 
