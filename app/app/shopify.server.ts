@@ -7,6 +7,20 @@ import {
 import { PrismaSessionStorage } from "@shopify/shopify-app-session-storage-prisma";
 import prisma from "./db.server";
 import { ensureShop } from "./models/shop.server";
+import { EncryptedSessionStorage } from "./services/session/encrypted-session-storage.server";
+
+// Encrypt access/refresh tokens at rest whenever a key is configured
+// (production). Local dev / tests without SESSION_ENCRYPTION_KEY keep
+// using the plain PrismaSessionStorage. Pre-existing plaintext sessions
+// (from before this was enabled) still load fine — decryptToken passes
+// unmarked values through unchanged — and get encrypted on next write.
+const prismaSessionStorage = new PrismaSessionStorage(prisma);
+const configuredSessionStorage = process.env.SESSION_ENCRYPTION_KEY
+  ? new EncryptedSessionStorage(
+      prismaSessionStorage,
+      process.env.SESSION_ENCRYPTION_KEY,
+    )
+  : prismaSessionStorage;
 
 const shopify = shopifyApp({
   apiKey: process.env.SHOPIFY_API_KEY,
@@ -15,7 +29,7 @@ const shopify = shopifyApp({
   scopes: process.env.SCOPES?.split(","),
   appUrl: process.env.SHOPIFY_APP_URL || "",
   authPathPrefix: "/auth",
-  sessionStorage: new PrismaSessionStorage(prisma),
+  sessionStorage: configuredSessionStorage,
   distribution: AppDistribution.AppStore,
   hooks: {
     afterAuth: async ({ session }) => {

@@ -77,7 +77,8 @@ fly secrets set \
   SHOPIFY_API_SECRET="<client secret from step 1>" \
   SCOPES="read_products,read_inventory" \
   SHOPIFY_APP_URL="https://merchgrid-catalog-audit.fly.dev" \
-  SESSION_SECRET="$(openssl rand -hex 32)"
+  SESSION_SECRET="$(openssl rand -hex 32)" \
+  SESSION_ENCRYPTION_KEY="$(openssl rand -hex 32)"
 ```
 
 Replace `merchgrid-catalog-audit.fly.dev` with your actual `<app>.fly.dev`
@@ -86,6 +87,13 @@ later). Do **not** also set `DATABASE_URL` as a secret — it's already in
 `fly.toml`'s `[env]` block, and setting it again as a secret would just be
 redundant (secrets don't override `[env]` in a meaningful way here; keep
 the DB path in one place).
+
+`SESSION_ENCRYPTION_KEY` turns on application-layer AES-256-GCM encryption
+of session access/refresh tokens at rest: existing plaintext tokens keep
+working (decrypt is a passthrough for unencrypted values) and get
+encrypted the next time that session is written; NEVER change this key
+after tokens have been encrypted with it — doing so orphans them and
+every affected merchant has to reinstall the app.
 
 ## 5. Point Shopify at the production URL
 
