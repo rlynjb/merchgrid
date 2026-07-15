@@ -26,7 +26,18 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
   const formData = await request.formData();
   const raw = formData.get("minimumMarginPercent");
-  const value = Number(raw);
+  const trimmed = typeof raw === "string" ? raw.trim() : "";
+  const value = Number(trimmed);
+
+  if (trimmed === "" || Number.isNaN(value)) {
+    return json(
+      {
+        ok: false as const,
+        error: `Enter a whole number between ${MARGIN_MIN} and ${MARGIN_MAX}`,
+      },
+      { status: 400 },
+    );
+  }
 
   try {
     const saved = await updateMinimumMargin(session.shop, value);
