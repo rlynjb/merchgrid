@@ -74,6 +74,7 @@ model Scan {
   failureCode              String?
   failureMessageSafe       String?
   findings                 Finding[]
+  artifacts                ScanArtifact[]
   createdAt                DateTime  @default(now())
   updatedAt                DateTime  @updatedAt
   @@index([shopId, status])
@@ -83,6 +84,9 @@ model Finding {
   id           String   @id @default(cuid())
   scanId       String
   scan         Scan     @relation(fields: [scanId], references: [id], onDelete: Cascade)
+  // Intentional denormalization: shopId is duplicated here (no relation/index
+  // by design) so shop-scoped finding queries and retention cleanup can filter
+  // without joining through Scan. Do not "fix" this into a relation.
   shopId       String
   checkId      String
   severity     String
@@ -101,6 +105,7 @@ model Finding {
 model ScanArtifact {
   id         String   @id @default(cuid())
   scanId     String
+  scan       Scan     @relation(fields: [scanId], references: [id], onDelete: Cascade)
   type       String
   storageKey String
   expiresAt  DateTime?

@@ -69,7 +69,8 @@ CREATE TABLE "ScanArtifact" (
     "type" TEXT NOT NULL,
     "storageKey" TEXT NOT NULL,
     "expiresAt" DATETIME,
-    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "ScanArtifact_scanId_fkey" FOREIGN KEY ("scanId") REFERENCES "Scan" ("id") ON DELETE CASCADE ON UPDATE CASCADE
 );
 
 -- CreateIndex
