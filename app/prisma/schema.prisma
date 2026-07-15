@@ -10,7 +10,7 @@ generator client {
 // See https://www.prisma.io/docs/orm/reference/prisma-schema-reference#string for more information
 datasource db {
   provider = "sqlite"
-  url      = "file:dev.sqlite"
+  url      = env("DATABASE_URL")
 }
 
 model Session {
@@ -31,4 +31,78 @@ model Session {
   emailVerified       Boolean?  @default(false)
   refreshToken        String?
   refreshTokenExpires DateTime?
+}
+
+model Shop {
+  id             String    @id @default(cuid())
+  shopDomain     String    @unique
+  shopifyShopId  String?
+  installStatus  String    @default("INSTALLED")
+  installedAt    DateTime  @default(now())
+  uninstalledAt  DateTime?
+  settings       ShopSettings?
+  scans          Scan[]
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+}
+
+model ShopSettings {
+  id                   String   @id @default(cuid())
+  shopId               String   @unique
+  shop                 Shop     @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  minimumMarginPercent Int      @default(20)
+  catalogVariantLimit  Int      @default(5000)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+}
+
+model Scan {
+  id                       String    @id @default(cuid())
+  shopId                   String
+  shop                     Shop      @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  status                   String    @default("QUEUED")
+  apiVersion               String
+  minimumMarginPercentUsed Int
+  productsProcessed        Int       @default(0)
+  variantsProcessed        Int       @default(0)
+  criticalCount            Int       @default(0)
+  warningCount             Int       @default(0)
+  unavailableCount         Int       @default(0)
+  startedAt                DateTime?
+  completedAt              DateTime?
+  failedAt                 DateTime?
+  failureCode              String?
+  failureMessageSafe       String?
+  findings                 Finding[]
+  createdAt                DateTime  @default(now())
+  updatedAt                DateTime  @updatedAt
+  @@index([shopId, status])
+}
+
+model Finding {
+  id           String   @id @default(cuid())
+  scanId       String
+  scan         Scan     @relation(fields: [scanId], references: [id], onDelete: Cascade)
+  shopId       String
+  checkId      String
+  severity     String
+  productId    String
+  variantId    String?
+  productTitle String
+  variantTitle String?
+  adminUrl     String
+  evidenceJson String
+  explanation  String
+  detectedAt   DateTime
+  createdAt    DateTime @default(now())
+  @@index([scanId, severity])
+}
+
+model ScanArtifact {
+  id         String   @id @default(cuid())
+  scanId     String
+  type       String
+  storageKey String
+  expiresAt  DateTime?
+  createdAt  DateTime @default(now())
 }
