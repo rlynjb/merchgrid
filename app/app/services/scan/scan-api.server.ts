@@ -159,6 +159,60 @@ export async function getScanSummary(
   return toScanSummary(scan);
 }
 
+function toFindingRow(f: {
+  id: string;
+  checkId: string;
+  severity: string;
+  productId: string;
+  variantId: string | null;
+  productTitle: string;
+  variantTitle: string | null;
+  adminUrl: string;
+  evidenceJson: string;
+  explanation: string;
+  detectedAt: Date;
+  price: string | null;
+  compareAtPrice: string | null;
+  unitCost: string | null;
+  currencyCode: string | null;
+  sku: string | null;
+  barcode: string | null;
+  productStatus: string | null;
+}): FindingRow {
+  return {
+    id: f.id,
+    checkId: f.checkId,
+    severity: f.severity,
+    productId: f.productId,
+    variantId: f.variantId,
+    productTitle: f.productTitle,
+    variantTitle: f.variantTitle,
+    adminUrl: f.adminUrl,
+    evidence: JSON.parse(f.evidenceJson),
+    explanation: f.explanation,
+    detectedAt: f.detectedAt.toISOString(),
+    price: f.price,
+    compareAtPrice: f.compareAtPrice,
+    unitCost: f.unitCost,
+    currency: f.currencyCode,
+    sku: f.sku,
+    barcode: f.barcode,
+    productStatus: f.productStatus,
+  };
+}
+
+function sortBySeverityThenCheckId<T extends { severity: string; checkId: string }>(
+  rows: T[],
+): T[] {
+  return [...rows].sort((a, b) => {
+    const rankDiff =
+      (SEVERITY_RANK[a.severity] ?? Number.MAX_SAFE_INTEGER) -
+      (SEVERITY_RANK[b.severity] ?? Number.MAX_SAFE_INTEGER);
+    if (rankDiff !== 0) return rankDiff;
+    return a.checkId.localeCompare(b.checkId);
+  });
+}
+
 /**
  * Returns a paginated, severity-sorted page of findings for a scan owned by
  * `shopDomain`. Sort order: CRITICAL, then WARNING, then UNAVAILABLE, then
@@ -185,37 +239,32 @@ export async function getScanFindings(
     prisma.finding.count({ where: { scanId: scan.id } }),
   ]);
 
-  rows.sort((a, b) => {
-    const rankDiff =
-      (SEVERITY_RANK[a.severity] ?? Number.MAX_SAFE_INTEGER) -
-      (SEVERITY_RANK[b.severity] ?? Number.MAX_SAFE_INTEGER);
-    if (rankDiff !== 0) return rankDiff;
-    return a.checkId.localeCompare(b.checkId);
-  });
+  const sorted = sortBySeverityThenCheckId(rows);
 
   const start = (page - 1) * pageSize;
-  const pageRows = rows.slice(start, start + pageSize);
+  const pageRows = sorted.slice(start, start + pageSize);
 
-  const findings: FindingRow[] = pageRows.map((f) => ({
-    id: f.id,
-    checkId: f.checkId,
-    severity: f.severity,
-    productId: f.productId,
-    variantId: f.variantId,
-    productTitle: f.productTitle,
-    variantTitle: f.variantTitle,
-    adminUrl: f.adminUrl,
-    evidence: JSON.parse(f.evidenceJson),
-    explanation: f.explanation,
-    detectedAt: f.detectedAt.toISOString(),
-    price: f.price,
-    compareAtPrice: f.compareAtPrice,
-    unitCost: f.unitCost,
-    currency: f.currencyCode,
-    sku: f.sku,
-    barcode: f.barcode,
-    productStatus: f.productStatus,
-  }));
+  const findings: FindingRow[] = pageRows.map(toFindingRow);
 
   return { findings, total, page, pageSize };
+}
+
+/**
+ * Returns the scan summary plus every one of its findings — no pagination —
+ * severity-sorted the same way as `getScanFindings`. Used by the CSV export
+ * route, which needs the full result set in one shot. Same per-shop
+ * authorization as `getScanSummary`.
+ */
+export async function getAllFindingsForExport(
+  shopDomain: string,
+  scanId: string,
+): Promise<{ summary: ScanSummary; findings: FindingRow[] }> {
+  const shop = await resolveShopOrThrow(shopDomain);
+  const scan = await loadOwnedScan(shop, scanId);
+
+  const rows = await prisma.finding.findMany({ where: { scanId: scan.id } });
+  const sorted = sortBySeverityThenCheckId(rows);
+  const findings: FindingRow[] = sorted.map(toFindingRow);
+
+  return { summary: toScanSummary(scan), findings };
 }

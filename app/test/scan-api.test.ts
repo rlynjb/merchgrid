@@ -8,6 +8,7 @@ import {
   getScanSummary,
   getScanFindings,
   getActiveScanForShop,
+  getAllFindingsForExport,
 } from "../app/services/scan/scan-api.server";
 
 async function seedShop(
@@ -283,6 +284,52 @@ describe("getScanFindings", () => {
 
     await expect(
       getScanFindings(shopB.shopDomain, scan.id),
+    ).rejects.toThrow(ScanNotFoundError);
+  });
+});
+
+describe("getAllFindingsForExport", () => {
+  it("returns the scan summary and every finding for the owner, unpaginated and sorted", async () => {
+    const shop = await seedShop("scan-api-export.myshopify.com");
+    const scan = await seedScan(shop.id);
+
+    for (let i = 0; i < 120; i++) {
+      await seedFinding(scan.id, shop.id, {
+        checkId: `check-${String(i).padStart(3, "0")}`,
+        severity: "WARNING",
+      });
+    }
+    await seedFinding(scan.id, shop.id, {
+      checkId: "a-critical-check",
+      severity: "CRITICAL",
+    });
+
+    const result = await getAllFindingsForExport(shop.shopDomain, scan.id);
+
+    expect(result.summary.id).toBe(scan.id);
+    expect(result.findings).toHaveLength(121);
+    expect(result.findings[0].severity).toBe("CRITICAL");
+    expect(result.findings[0].checkId).toBe("a-critical-check");
+    expect(result.findings[1].severity).toBe("WARNING");
+    expect(result.findings[1].checkId).toBe("check-000");
+  });
+
+  it("throws ScanNotFoundError when a different shop requests the export", async () => {
+    const shopA = await seedShop("scan-api-export-authz-a.myshopify.com");
+    const shopB = await seedShop("scan-api-export-authz-b.myshopify.com");
+    const scan = await seedScan(shopA.id);
+    await seedFinding(scan.id, shopA.id);
+
+    await expect(
+      getAllFindingsForExport(shopB.shopDomain, scan.id),
+    ).rejects.toThrow(ScanNotFoundError);
+  });
+
+  it("throws ScanNotFoundError for a nonexistent scan id", async () => {
+    const shop = await seedShop("scan-api-export-missing.myshopify.com");
+
+    await expect(
+      getAllFindingsForExport(shop.shopDomain, "does-not-exist"),
     ).rejects.toThrow(ScanNotFoundError);
   });
 });
