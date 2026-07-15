@@ -14,3 +14,7 @@ prisma/test.sqlite-journal
 database.sqlite
 *.sqlite
 *.sqlite-journal
+
+# Build artifacts rebuilt inside the image — keep the build provably from-scratch
+packages/*/dist
+**/*.tsbuildinfo
