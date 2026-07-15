@@ -1,0 +1,257 @@
+import { describe, expect, it } from "vitest";
+import type {
+  AdminGraphqlClient,
+  ReadCatalogOptions,
+} from "../app/services/shopify/catalog-reader.server";
+import { readCatalog } from "../app/services/shopify/catalog-reader.server";
+
+// A canned "page" mimics the raw JSON body the real Shopify Admin GraphQL
+// API would return from `res.json()`: `{ data: { products: {...} } }`.
+type CannedPage = { data: any } | { data?: any; errors: Array<{ message: string }> };
+
+interface FakeCall {
+  query: string;
+  variables?: Record<string, unknown>;
+}
+
+function createFakeAdmin(pages: CannedPage[]): {
+  admin: AdminGraphqlClient;
+  calls: FakeCall[];
+} {
+  const calls: FakeCall[] = [];
+  let callIndex = 0;
+
+  const admin: AdminGraphqlClient = {
+    async graphql(query, options) {
+      calls.push({ query, variables: options?.variables });
+      const page = pages[callIndex] ?? pages[pages.length - 1];
+      callIndex += 1;
+      return {
+        async json() {
+          return page;
+        },
+      };
+    },
+  };
+
+  return { admin, calls };
+}
+
+function variantFixture(id: string, overrides: Record<string, unknown> = {}) {
+  return {
+    id: `gid://shopify/ProductVariant/${id}`,
+    title: "Default Title",
+    price: "10.00",
+    compareAtPrice: null,
+    sku: `SKU-${id}`,
+    barcode: null,
+    inventoryPolicy: "DENY",
+    inventoryQuantity: 1,
+    inventoryItem: {
+      tracked: true,
+      unitCost: { amount: "5.00", currencyCode: "USD" },
+    },
+    ...overrides,
+  };
+}
+
+function productFixture(id: string, variants: unknown[], overrides: Record<string, unknown> = {}) {
+  return {
+    id: `gid://shopify/Product/${id}`,
+    title: `Product ${id}`,
+    status: "ACTIVE",
+    handle: `product-${id}`,
+    variants: {
+      pageInfo: { hasNextPage: false, endCursor: null },
+      nodes: variants,
+    },
+    ...overrides,
+  };
+}
+
+describe("readCatalog", () => {
+  describe("pagination", () => {
+    it("follows cursors across multiple product pages", async () => {
+      const page1: CannedPage = {
+        data: {
+          products: {
+            pageInfo: { hasNextPage: true, endCursor: "c1" },
+            nodes: [productFixture("1", [variantFixture("1")])],
+          },
+        },
+      };
+      const page2: CannedPage = {
+        data: {
+          products: {
+            pageInfo: { hasNextPage: false, endCursor: null },
+            nodes: [productFixture("2", [variantFixture("2")])],
+          },
+        },
+      };
+
+      const { admin, calls } = createFakeAdmin([page1, page2]);
+      const opts: ReadCatalogOptions = { variantLimit: 1000 };
+      const result = await readCatalog(admin, opts);
+
+      expect(result.products.map((p) => p.id)).toEqual([
+        "gid://shopify/Product/1",
+        "gid://shopify/Product/2",
+      ]);
+      expect(result.productsProcessed).toBe(2);
+      expect(result.variantsProcessed).toBe(2);
+      expect(result.partial).toBe(false);
+
+      expect(calls.length).toBe(2);
+      expect(calls[0].variables?.cursor).toBeUndefined();
+      expect(calls[1].variables?.cursor).toBe("c1");
+    });
+  });
+
+  describe("field mapping", () => {
+    it("maps variant fields, preserving nulls and decimal strings verbatim", async () => {
+      const page: CannedPage = {
+        data: {
+          products: {
+            pageInfo: { hasNextPage: false, endCursor: null },
+            nodes: [
+              productFixture("1", [
+                variantFixture("1", {
+                  price: "12.50",
+                  compareAtPrice: null,
+                  sku: null,
+                  barcode: null,
+                  inventoryItem: null,
+                }),
+                variantFixture("2", {
+                  price: "20.00",
+                  compareAtPrice: "25.00",
+                  sku: "SKU-2",
+                  barcode: "0123456789",
+                  inventoryItem: { tracked: true, unitCost: null },
+                }),
+              ]),
+            ],
+          },
+        },
+      };
+
+      const { admin } = createFakeAdmin([page]);
+      const result = await readCatalog(admin, { variantLimit: 1000 });
+
+      const [v1, v2] = result.products[0].variants.nodes;
+
+      expect(v1.inventoryItem).toBeNull();
+      expect(v1.compareAtPrice).toBeNull();
+      expect(v1.sku).toBeNull();
+      expect(v1.barcode).toBeNull();
+      expect(v1.price).toBe("12.50");
+
+      expect(v2.inventoryItem).toEqual({ tracked: true, unitCost: null });
+      expect(v2.compareAtPrice).toBe("25.00");
+      expect(v2.sku).toBe("SKU-2");
+      expect(v2.price).toBe("20.00");
+    });
+
+    it("passes through a full inventoryItem with unitCost", async () => {
+      const page: CannedPage = {
+        data: {
+          products: {
+            pageInfo: { hasNextPage: false, endCursor: null },
+            nodes: [
+              productFixture("1", [
+                variantFixture("1", {
+                  inventoryItem: {
+                    tracked: true,
+                    unitCost: { amount: "7.25", currencyCode: "CAD" },
+                  },
+                }),
+              ]),
+            ],
+          },
+        },
+      };
+
+      const { admin } = createFakeAdmin([page]);
+      const result = await readCatalog(admin, { variantLimit: 1000 });
+
+      expect(result.products[0].variants.nodes[0].inventoryItem).toEqual({
+        tracked: true,
+        unitCost: { amount: "7.25", currencyCode: "CAD" },
+      });
+    });
+  });
+
+  describe("variant limit + partial", () => {
+    it("stops paging and marks partial when the limit is reached mid-page", async () => {
+      const page: CannedPage = {
+        data: {
+          products: {
+            pageInfo: { hasNextPage: true, endCursor: "c1" },
+            nodes: [
+              productFixture("1", [variantFixture("1"), variantFixture("2")]),
+              productFixture("2", [variantFixture("3")]),
+            ],
+          },
+        },
+      };
+
+      const { admin, calls } = createFakeAdmin([page]);
+      const result = await readCatalog(admin, { variantLimit: 2 });
+
+      expect(result.variantsProcessed).toBeGreaterThanOrEqual(2);
+      expect(result.partial).toBe(true);
+      // Only the first page should have been fetched — the reader stops
+      // once the limit is reached instead of requesting a second page.
+      expect(calls.length).toBe(1);
+    });
+
+    it("marks partial false when fully under the limit with no more pages", async () => {
+      const page: CannedPage = {
+        data: {
+          products: {
+            pageInfo: { hasNextPage: false, endCursor: null },
+            nodes: [
+              productFixture("1", [variantFixture("1")]),
+              productFixture("2", [variantFixture("2")]),
+            ],
+          },
+        },
+      };
+
+      const { admin } = createFakeAdmin([page]);
+      const result = await readCatalog(admin, { variantLimit: 1000 });
+
+      expect(result.variantsProcessed).toBe(2);
+      expect(result.partial).toBe(false);
+    });
+
+    it("marks partial true when the limit is hit exactly at a page boundary that has more pages", async () => {
+      const page1: CannedPage = {
+        data: {
+          products: {
+            pageInfo: { hasNextPage: true, endCursor: "c1" },
+            nodes: [productFixture("1", [variantFixture("1"), variantFixture("2")])],
+          },
+        },
+      };
+
+      const { admin, calls } = createFakeAdmin([page1]);
+      const result = await readCatalog(admin, { variantLimit: 2 });
+
+      expect(result.variantsProcessed).toBe(2);
+      expect(result.partial).toBe(true);
+      expect(calls.length).toBe(1);
+    });
+  });
+
+  describe("errors", () => {
+    it("throws a safe error when the GraphQL response contains top-level errors", async () => {
+      const page: CannedPage = {
+        errors: [{ message: "Some internal Shopify detail that should not leak" }],
+      };
+      const { admin } = createFakeAdmin([page]);
+
+      await expect(readCatalog(admin, { variantLimit: 1000 })).rejects.toThrow(Error);
+    });
+  });
+});
