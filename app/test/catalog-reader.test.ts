@@ -7,7 +7,12 @@ import { readCatalog } from "../app/services/shopify/catalog-reader.server";
 
 // A canned "page" mimics the raw JSON body the real Shopify Admin GraphQL
 // API would return from `res.json()`: `{ data: { products: {...} } }`.
-type CannedPage = { data: any } | { data?: any; errors: Array<{ message: string }> };
+type CannedPage =
+  | { data: any }
+  | {
+      data?: any;
+      errors: Array<{ message: string; extensions?: { code?: string } }>;
+    };
 
 interface FakeCall {
   query: string;
@@ -54,6 +59,42 @@ function variantFixture(id: string, overrides: Record<string, unknown> = {}) {
     ...overrides,
   };
 }
+
+// A scripted admin, distinct from `createFakeAdmin`, lets a step reject
+// (simulating a network blip / transient 5xx from `admin.graphql` itself)
+// instead of only ever resolving with a canned JSON page. Once the script
+// is exhausted, the last step repeats (e.g. "always THROTTLED").
+type ScriptedStep = { reject: Error } | { page: CannedPage };
+
+function createScriptedAdmin(steps: ScriptedStep[]): {
+  admin: AdminGraphqlClient;
+  calls: FakeCall[];
+} {
+  const calls: FakeCall[] = [];
+  let callIndex = 0;
+
+  const admin: AdminGraphqlClient = {
+    async graphql(query, options) {
+      calls.push({ query, variables: options?.variables });
+      const step = steps[callIndex] ?? steps[steps.length - 1];
+      callIndex += 1;
+      if ("reject" in step) {
+        throw step.reject;
+      }
+      return {
+        async json() {
+          return step.page;
+        },
+      };
+    },
+  };
+
+  return { admin, calls };
+}
+
+const throttledPage: CannedPage = {
+  errors: [{ message: "Throttled", extensions: { code: "THROTTLED" } }],
+};
 
 function productFixture(id: string, variants: unknown[], overrides: Record<string, unknown> = {}) {
   return {
@@ -353,6 +394,79 @@ describe("readCatalog", () => {
       const { admin } = createFakeAdmin([page]);
 
       await expect(readCatalog(admin, { variantLimit: 1000 })).rejects.toThrow(Error);
+    });
+  });
+
+  describe("retry", () => {
+    const successPage: CannedPage = {
+      data: {
+        products: {
+          pageInfo: { hasNextPage: false, endCursor: null },
+          nodes: [productFixture("1", [variantFixture("1")])],
+        },
+      },
+    };
+
+    it("retries a THROTTLED response, then succeeds", async () => {
+      const { admin, calls } = createScriptedAdmin([
+        { page: throttledPage },
+        { page: successPage },
+      ]);
+
+      const result = await readCatalog(admin, {
+        variantLimit: 1000,
+        sleep: async () => {},
+      });
+
+      expect(result.products.map((p) => p.id)).toEqual([
+        "gid://shopify/Product/1",
+      ]);
+      expect(calls.length).toBe(2);
+    });
+
+    it("retries when admin.graphql rejects (transient/network failure), then succeeds", async () => {
+      const { admin, calls } = createScriptedAdmin([
+        { reject: new Error("ECONNRESET") },
+        { page: successPage },
+      ]);
+
+      const result = await readCatalog(admin, {
+        variantLimit: 1000,
+        sleep: async () => {},
+      });
+
+      expect(result.products.map((p) => p.id)).toEqual([
+        "gid://shopify/Product/1",
+      ]);
+      expect(calls.length).toBe(2);
+    });
+
+    it("throws a safe error after exhausting maxRetries on persistent throttling", async () => {
+      const { admin, calls } = createScriptedAdmin([{ page: throttledPage }]);
+
+      await expect(
+        readCatalog(admin, {
+          variantLimit: 1000,
+          sleep: async () => {},
+          maxRetries: 2,
+        }),
+      ).rejects.toThrow(Error);
+
+      // maxRetries + 1 total attempts.
+      expect(calls.length).toBe(3);
+    });
+
+    it("does not retry a genuine (non-throttle) GraphQL error", async () => {
+      const errorPage: CannedPage = {
+        errors: [{ message: "Field 'x' doesn't exist on type 'Product'" }],
+      };
+      const { admin, calls } = createScriptedAdmin([{ page: errorPage }]);
+
+      await expect(
+        readCatalog(admin, { variantLimit: 1000, sleep: async () => {} }),
+      ).rejects.toThrow(Error);
+
+      expect(calls.length).toBe(1);
     });
   });
 });

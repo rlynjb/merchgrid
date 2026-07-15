@@ -23,6 +23,17 @@ export interface AdminGraphqlClient {
 export interface ReadCatalogOptions {
   /** Stop once this many variants have been processed (spec guardrail). */
   variantLimit: number;
+  /**
+   * Maximum number of retry attempts for a rate-limited/transient GraphQL
+   * call, on top of the initial attempt (so up to `maxRetries + 1` total
+   * calls). Defaults to 4.
+   */
+  maxRetries?: number;
+  /**
+   * Injectable delay function used between retries, so tests don't have to
+   * wait on real timers. Defaults to a real `setTimeout`-based sleep.
+   */
+  sleep?: (ms: number) => Promise<void>;
 }
 
 // Read-only: this module must never issue a mutation. Only `query`
@@ -134,23 +145,99 @@ interface GraphqlProductNode {
   };
 }
 
+/**
+ * Retry policy for GraphQL calls against the Shopify Admin API, which is
+ * cost-throttled: a throttled call typically comes back as an HTTP 200 with
+ * a `THROTTLED` GraphQL error rather than a rejected promise. `sleep` and
+ * `maxRetries` are injectable so tests can exercise retry behavior without
+ * waiting on real timers.
+ */
+interface RetryPolicy {
+  maxRetries: number;
+  sleep: (ms: number) => Promise<void>;
+}
+
+const DEFAULT_MAX_RETRIES = 4;
+const RETRY_BASE_DELAY_MS = 500;
+const RETRY_MAX_DELAY_MS = 8_000;
+
+function defaultSleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function resolveRetryPolicy(opts: ReadCatalogOptions): RetryPolicy {
+  return {
+    maxRetries: opts.maxRetries ?? DEFAULT_MAX_RETRIES,
+    sleep: opts.sleep ?? defaultSleep,
+  };
+}
+
+/** Exponential backoff with jitter, capped at RETRY_MAX_DELAY_MS. */
+function computeRetryDelayMs(attempt: number): number {
+  const capped = Math.min(
+    RETRY_BASE_DELAY_MS * 2 ** attempt,
+    RETRY_MAX_DELAY_MS,
+  );
+  // Full jitter within [capped / 2, capped] so retries from concurrent
+  // requests don't all wake up in lockstep.
+  return capped / 2 + Math.random() * (capped / 2);
+}
+
+/**
+ * True when a well-formed GraphQL error body indicates Shopify's cost
+ * throttling kicked in (`extensions.code: "THROTTLED"` on at least one
+ * error), as opposed to a genuine query error (unknown field, bad
+ * argument, etc.) which should fail immediately instead of retrying.
+ */
+function isThrottledErrorBody(body: any): boolean {
+  if (!body?.errors || !Array.isArray(body.errors)) return false;
+  return body.errors.some((error: any) => {
+    const code = error?.extensions?.code;
+    return typeof code === "string" && code.toUpperCase() === "THROTTLED";
+  });
+}
+
 async function runQuery(
   admin: AdminGraphqlClient,
   query: string,
   variables: Record<string, unknown>,
+  policy: RetryPolicy,
 ): Promise<any> {
-  const response = await admin.graphql(query, { variables });
-  const body = await response.json();
+  let attempt = 0;
 
-  if (body?.errors && Array.isArray(body.errors) && body.errors.length > 0) {
-    // Don't leak internal GraphQL error details (query text, schema
-    // internals, etc.) to callers/logs beyond this safe message.
-    throw new Error(
-      "Failed to read catalog from Shopify: the GraphQL request returned errors.",
-    );
+  for (;;) {
+    let body: any;
+    try {
+      const response = await admin.graphql(query, { variables });
+      body = await response.json();
+    } catch {
+      // The call itself rejected — a network blip or transient 5xx.
+      // Retry it like a throttle, up to the retry budget.
+      if (attempt < policy.maxRetries) {
+        await policy.sleep(computeRetryDelayMs(attempt));
+        attempt += 1;
+        continue;
+      }
+      throw new Error(
+        "Failed to read catalog from Shopify: the GraphQL request failed after retries.",
+      );
+    }
+
+    if (body?.errors && Array.isArray(body.errors) && body.errors.length > 0) {
+      if (isThrottledErrorBody(body) && attempt < policy.maxRetries) {
+        await policy.sleep(computeRetryDelayMs(attempt));
+        attempt += 1;
+        continue;
+      }
+      // Don't leak internal GraphQL error details (query text, schema
+      // internals, etc.) to callers/logs beyond this safe message.
+      throw new Error(
+        "Failed to read catalog from Shopify: the GraphQL request returned errors.",
+      );
+    }
+
+    return body;
   }
-
-  return body;
 }
 
 /**
@@ -225,6 +312,7 @@ async function fetchAllVariants(
   firstPageNodes: GraphqlVariantNode[],
   firstPageInfo: GraphqlPageInfo | undefined,
   remaining: number,
+  policy: RetryPolicy,
 ): Promise<VariantFetchResult> {
   const nodes = [...firstPageNodes];
   let pageInfo = firstPageInfo;
@@ -235,10 +323,15 @@ async function fetchAllVariants(
     if (nodes.length >= remaining) {
       return { nodes, truncated: true };
     }
-    const body = await runQuery(admin, PRODUCT_VARIANTS_PAGE_QUERY, {
-      id: productId,
-      cursor: pageInfo.endCursor,
-    });
+    const body = await runQuery(
+      admin,
+      PRODUCT_VARIANTS_PAGE_QUERY,
+      {
+        id: productId,
+        cursor: pageInfo.endCursor,
+      },
+      policy,
+    );
     const connection = requireData<{
       pageInfo: GraphqlPageInfo;
       nodes: GraphqlVariantNode[];
@@ -259,6 +352,7 @@ async function buildProduct(
   admin: AdminGraphqlClient,
   node: GraphqlProductNode,
   remaining: number,
+  policy: RetryPolicy,
 ): Promise<BuiltProduct> {
   const { nodes: variantNodes, truncated } = await fetchAllVariants(
     admin,
@@ -266,6 +360,7 @@ async function buildProduct(
     node.variants.nodes,
     node.variants.pageInfo,
     remaining,
+    policy,
   );
 
   return {
@@ -296,20 +391,29 @@ async function buildProduct(
  * Read-only by construction: every request issued here is a GraphQL
  * `query`, never a `mutation`.
  *
- * Rate-limit/throttle retry handling is explicitly out of scope for this
- * function — a follow-up concern, not implemented here.
+ * Every GraphQL call (products page + per-product variant sub-pagination)
+ * is retried with exponential backoff on Shopify's cost-throttling
+ * (`extensions.code: "THROTTLED"`) or a rejected `admin.graphql(...)` call
+ * (network blip/transient 5xx). A genuine query error is NOT retried and
+ * fails immediately. See `resolveRetryPolicy`/`runQuery`.
  */
 export async function readCatalog(
   admin: AdminGraphqlClient,
   opts: ReadCatalogOptions,
 ): Promise<RawCatalog> {
+  const policy = resolveRetryPolicy(opts);
   const products: RawProductNode[] = [];
   let productsProcessed = 0;
   let variantsProcessed = 0;
   let cursor: string | undefined;
 
   for (;;) {
-    const body = await runQuery(admin, PRODUCTS_PAGE_QUERY, { cursor });
+    const body = await runQuery(
+      admin,
+      PRODUCTS_PAGE_QUERY,
+      { cursor },
+      policy,
+    );
     const connection = requireData<{
       pageInfo: GraphqlPageInfo;
       nodes: GraphqlProductNode[];
@@ -323,6 +427,7 @@ export async function readCatalog(
         admin,
         pageNodes[i],
         remaining,
+        policy,
       );
       products.push(product);
       productsProcessed += 1;
