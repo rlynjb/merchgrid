@@ -25,6 +25,7 @@ describe("redactShop", () => {
         shopId: shop.id,
         checkId: "missing-image",
         severity: "WARNING",
+        severityRank: 1,
         productId: "gid://shopify/Product/1",
         productTitle: "Test Product",
         adminUrl: "https://redact-me.myshopify.com/admin/products/1",

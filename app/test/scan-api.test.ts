@@ -10,6 +10,7 @@ import {
   getActiveScanForShop,
   getAllFindingsForExport,
 } from "../app/services/scan/scan-api.server";
+import { buildSearchText, severityToRank } from "../app/services/scan/severity";
 
 async function seedShop(
   domain: string,
@@ -44,27 +45,48 @@ async function seedFinding(
   shopId: string,
   overrides: Record<string, unknown> = {},
 ) {
+  const defaults = {
+    scanId,
+    shopId,
+    checkId: "check-a",
+    severity: "WARNING",
+    productId: "gid://shopify/Product/1",
+    variantId: null,
+    productTitle: "Some Product",
+    variantTitle: null,
+    adminUrl: "https://admin.shopify.com/some",
+    evidenceJson: JSON.stringify({ foo: "bar" }),
+    explanation: "Something is off.",
+    detectedAt: new Date(),
+    price: null,
+    compareAtPrice: null,
+    unitCost: null,
+    currencyCode: null,
+    sku: null,
+    barcode: null,
+    productStatus: null,
+  };
+
+  // Resolve the fields that drive severityRank/searchText from `overrides`
+  // (falling back to the defaults above) so seeds mirror what
+  // runner.server.ts computes at persist time (spec §11.2) — the DB-level
+  // ordering/search tests rely on this.
+  const severity = (overrides.severity as string | undefined) ?? defaults.severity;
+  const productTitle =
+    (overrides.productTitle as string | undefined) ?? defaults.productTitle;
+  const variantTitle =
+    (overrides.variantTitle as string | null | undefined) ?? defaults.variantTitle;
+  const sku = (overrides.sku as string | null | undefined) ?? defaults.sku;
+  const barcode = (overrides.barcode as string | null | undefined) ?? defaults.barcode;
+
   return prisma.finding.create({
     data: {
-      scanId,
-      shopId,
-      checkId: "check-a",
-      severity: "WARNING",
-      productId: "gid://shopify/Product/1",
-      variantId: null,
-      productTitle: "Some Product",
-      variantTitle: null,
-      adminUrl: "https://admin.shopify.com/some",
-      evidenceJson: JSON.stringify({ foo: "bar" }),
-      explanation: "Something is off.",
-      detectedAt: new Date(),
-      price: null,
-      compareAtPrice: null,
-      unitCost: null,
-      currencyCode: null,
-      sku: null,
-      barcode: null,
-      productStatus: null,
+      ...defaults,
+      severityRank: severityToRank(severity),
+      searchText: buildSearchText([productTitle, variantTitle, sku, barcode]),
+      // Spread last so a test can still explicitly override severityRank or
+      // searchText directly (e.g. to prove ordering reads the persisted
+      // column, not the severity string, at the DB level).
       ...overrides,
     },
   });
@@ -389,6 +411,71 @@ describe("getScanFindings", () => {
     expect(page2.findings).toHaveLength(1);
     expect(page2.findings[0].severity).toBe("CRITICAL");
     expect(page2.findings[0].checkId).toBe("crit-c");
+  });
+
+  it("performs the search filter case-insensitively at the SQL level, regardless of query/stored casing", async () => {
+    const shop = await seedShop("scan-api-findings-search-case.myshopify.com");
+    const scan = await seedScan(shop.id);
+
+    await seedFinding(scan.id, shop.id, {
+      checkId: "check-mixed-case",
+      productTitle: "VinTAGE HooDIE",
+      sku: "MixedCase-SKU",
+    });
+    await seedFinding(scan.id, shop.id, {
+      checkId: "check-unrelated",
+      productTitle: "Something else",
+      sku: "OTHER",
+    });
+
+    const upperQuery = await getScanFindings(shop.shopDomain, scan.id, {
+      search: "HOODIE",
+    });
+    expect(upperQuery.findings.map((f) => f.checkId)).toEqual([
+      "check-mixed-case",
+    ]);
+    expect(upperQuery.total).toBe(1);
+
+    const mixedQuery = await getScanFindings(shop.shopDomain, scan.id, {
+      search: "mixedcase-sku",
+    });
+    expect(mixedQuery.findings.map((f) => f.checkId)).toEqual([
+      "check-mixed-case",
+    ]);
+    expect(mixedQuery.total).toBe(1);
+  });
+
+  it("orders by the persisted severityRank column (not by re-deriving it from severity) then checkId, at the DB level", async () => {
+    const shop = await seedShop("scan-api-findings-db-order.myshopify.com");
+    const scan = await seedScan(shop.id);
+
+    // Seed out of order, and deliberately give the "UNAVAILABLE" row a lower
+    // severityRank than the "CRITICAL" row than their severity strings would
+    // normally imply — this only sorts first if the SQL ORDER BY reads the
+    // persisted severityRank column directly, not the severity string.
+    await seedFinding(scan.id, shop.id, {
+      checkId: "z-last",
+      severity: "WARNING",
+      severityRank: 5,
+    });
+    await seedFinding(scan.id, shop.id, {
+      checkId: "b-should-be-first",
+      severity: "UNAVAILABLE",
+      severityRank: 0,
+    });
+    await seedFinding(scan.id, shop.id, {
+      checkId: "a-should-be-second",
+      severity: "CRITICAL",
+      severityRank: 1,
+    });
+
+    const page = await getScanFindings(shop.shopDomain, scan.id);
+
+    expect(page.findings.map((f) => f.checkId)).toEqual([
+      "b-should-be-first",
+      "a-should-be-second",
+      "z-last",
+    ]);
   });
 
   it("composes multiple filters with AND semantics", async () => {
