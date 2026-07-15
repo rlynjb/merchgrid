@@ -244,11 +244,112 @@ describe("readCatalog", () => {
     });
   });
 
+  describe("variant sub-pagination", () => {
+    // A canned response for the per-product `variants(after:)` sub-query,
+    // shaped like `res.json()` for CatalogReaderProductVariants.
+    function variantSubPage(
+      variants: unknown[],
+      pageInfo: { hasNextPage: boolean; endCursor: string | null },
+    ): CannedPage {
+      return { data: { product: { variants: { pageInfo, nodes: variants } } } };
+    }
+
+    it("follows a product's own variant cursor across pages, collecting in order", async () => {
+      const productsPage: CannedPage = {
+        data: {
+          products: {
+            pageInfo: { hasNextPage: false, endCursor: null },
+            nodes: [
+              productFixture("1", [variantFixture("1")], {
+                variants: {
+                  pageInfo: { hasNextPage: true, endCursor: "v1" },
+                  nodes: [variantFixture("1")],
+                },
+              }),
+            ],
+          },
+        },
+      };
+      const subPage2 = variantSubPage([variantFixture("2")], {
+        hasNextPage: false,
+        endCursor: null,
+      });
+
+      const { admin, calls } = createFakeAdmin([productsPage, subPage2]);
+      const result = await readCatalog(admin, { variantLimit: 1000 });
+
+      expect(result.products.length).toBe(1);
+      expect(result.products[0].variants.nodes.map((v) => v.id)).toEqual([
+        "gid://shopify/ProductVariant/1",
+        "gid://shopify/ProductVariant/2",
+      ]);
+      expect(result.variantsProcessed).toBe(2);
+      expect(result.partial).toBe(false);
+
+      // products query, then one variant sub-query carrying the cursor.
+      expect(calls.length).toBe(2);
+      expect(calls[1].variables?.id).toBe("gid://shopify/Product/1");
+      expect(calls[1].variables?.cursor).toBe("v1");
+    });
+
+    it("stops sub-paginating one huge product once the catalog variant limit is reached", async () => {
+      const productsPage: CannedPage = {
+        data: {
+          products: {
+            pageInfo: { hasNextPage: false, endCursor: null },
+            nodes: [
+              productFixture("1", [variantFixture("1")], {
+                variants: {
+                  pageInfo: { hasNextPage: true, endCursor: "v1" },
+                  nodes: [variantFixture("1")],
+                },
+              }),
+            ],
+          },
+        },
+      };
+      // Sub-page 1 still reports more pages; the reader must NOT go past it
+      // once the budget of 2 variants is met.
+      const subPage1 = variantSubPage([variantFixture("2")], {
+        hasNextPage: true,
+        endCursor: "v2",
+      });
+      const subPageNeverFetched = variantSubPage([variantFixture("3")], {
+        hasNextPage: true,
+        endCursor: "v3",
+      });
+
+      const { admin, calls } = createFakeAdmin([
+        productsPage,
+        subPage1,
+        subPageNeverFetched,
+      ]);
+      const result = await readCatalog(admin, { variantLimit: 2 });
+
+      expect(result.variantsProcessed).toBe(2);
+      expect(result.partial).toBe(true);
+      // products query + exactly one variant sub-query: it stopped instead of
+      // draining the whole product (which would have fetched subPageNeverFetched).
+      expect(calls.length).toBe(2);
+      expect(result.products[0].variants.nodes.map((v) => v.id)).toEqual([
+        "gid://shopify/ProductVariant/1",
+        "gid://shopify/ProductVariant/2",
+      ]);
+    });
+  });
+
   describe("errors", () => {
     it("throws a safe error when the GraphQL response contains top-level errors", async () => {
       const page: CannedPage = {
         errors: [{ message: "Some internal Shopify detail that should not leak" }],
       };
+      const { admin } = createFakeAdmin([page]);
+
+      await expect(readCatalog(admin, { variantLimit: 1000 })).rejects.toThrow(Error);
+    });
+
+    it("throws a safe error when an error-free response is missing products", async () => {
+      const page: CannedPage = { data: {} };
       const { admin } = createFakeAdmin([page]);
 
       await expect(readCatalog(admin, { variantLimit: 1000 })).rejects.toThrow(Error);
