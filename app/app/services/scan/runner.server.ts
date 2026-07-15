@@ -14,6 +14,15 @@ const GENERIC_FAILURE_MESSAGE =
 export interface RunScanDeps {
   /** Injectable ISO-8601 clock, used only for finding `detectedAt` values, so tests are deterministic. */
   now?: () => string;
+  /**
+   * Overrides for `readCatalog`'s throttle/transient-error retry policy.
+   * Only meant for tests that simulate a persistent or one-off upstream
+   * failure and don't want to wait on real backoff timers — production
+   * callers should omit these and get `readCatalog`'s own defaults
+   * (maxRetries: 4, real setTimeout-based sleep).
+   */
+  catalogMaxRetries?: number;
+  catalogSleep?: (ms: number) => Promise<void>;
 }
 
 function defaultNowIso(): string {
@@ -93,6 +102,10 @@ export async function runScan(
     const currencyCode = await fetchShopCurrencyCode(admin);
     const raw = await readCatalog(admin, {
       variantLimit: settings.catalogVariantLimit,
+      ...(deps?.catalogMaxRetries !== undefined
+        ? { maxRetries: deps.catalogMaxRetries }
+        : {}),
+      ...(deps?.catalogSleep ? { sleep: deps.catalogSleep } : {}),
     });
 
     assertTransition(currentStatus, "RUNNING_CHECKS");

@@ -247,7 +247,12 @@ describe("runScan", () => {
     const { scan } = await seedShopAndScan();
     const admin = createFakeAdmin({ failProductsQuery: true });
 
-    await runScan(scan.id, admin, { now: () => FIXED_NOW });
+    // catalogMaxRetries: 0 — this test simulates a persistent upstream
+    // failure and asserts on the resulting FAILED scan, not on
+    // readCatalog's retry/backoff behavior (covered separately in
+    // catalog-reader.test.ts), so retries are disabled to keep this test
+    // fast and deterministic.
+    await runScan(scan.id, admin, { now: () => FIXED_NOW, catalogMaxRetries: 0 });
 
     const updated = await prisma.scan.findUniqueOrThrow({ where: { id: scan.id } });
     expect(updated.status).toBe("FAILED");
