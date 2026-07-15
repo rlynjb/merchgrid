@@ -9,10 +9,11 @@
 
 app = "merchgrid-catalog-audit"
 
-# Set this to the region you actually provision the volume in — the
-# machine and the volume must be in the same region. Pick one close to
-# your dev store / users, e.g. "iad" (Virginia), "lhr" (London), etc.
-# primary_region = "iad"
+# The machine and the volume MUST be in the same region. Change this to one
+# close to you, e.g. "sjc"/"sea" (US-west), "lhr"/"ams" (Europe),
+# "sin"/"nrt" (Asia), "syd" (Australia) — then use the SAME code in
+# `fly volumes create data --size 1 --region <region>`.
+primary_region = "iad"
 
 [build]
   dockerfile = "Dockerfile"
