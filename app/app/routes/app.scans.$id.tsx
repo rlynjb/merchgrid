@@ -1,11 +1,13 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import type { LoaderFunctionArgs } from "@remix-run/node";
 import {
+  Form,
   isRouteErrorResponse,
   useLoaderData,
   useNavigate,
   useRevalidator,
   useRouteError,
+  useSearchParams,
 } from "@remix-run/react";
 import {
   Badge,
@@ -18,10 +20,13 @@ import {
   InlineGrid,
   InlineStack,
   Link,
+  Modal,
   Page,
   Pagination,
+  Select,
   Spinner,
   Text,
+  TextField,
 } from "@shopify/polaris";
 import { TitleBar } from "@shopify/app-bridge-react";
 import { ALL_CHECKS } from "@merchgrid/catalog-checks";
@@ -68,6 +73,10 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
   const pageParam = Number(url.searchParams.get("page") ?? "1");
   const page = Number.isFinite(pageParam) && pageParam > 0 ? Math.floor(pageParam) : 1;
 
+  const severity = url.searchParams.get("severity") || "";
+  const checkId = url.searchParams.get("checkId") || "";
+  const q = url.searchParams.get("q") || "";
+
   let summary;
   try {
     summary = await getScanSummary(session.shop, scanId);
@@ -81,13 +90,33 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
   const checkNames: Record<string, string> = Object.fromEntries(
     ALL_CHECKS.map((check) => [check.id, check.name]),
   );
+  const checkDescriptions: Record<string, string> = Object.fromEntries(
+    ALL_CHECKS.map((check) => [check.id, check.description]),
+  );
+  const checks = ALL_CHECKS.map((check) => ({
+    id: check.id,
+    name: check.name,
+  }));
 
   const findingsPage =
     summary.status === "COMPLETED"
-      ? await getScanFindings(session.shop, scanId, { page, pageSize: PAGE_SIZE })
+      ? await getScanFindings(session.shop, scanId, {
+          page,
+          pageSize: PAGE_SIZE,
+          severity: severity || undefined,
+          checkId: checkId || undefined,
+          search: q || undefined,
+        })
       : null;
 
-  return { summary, checkNames, findingsPage };
+  return {
+    summary,
+    checkNames,
+    checkDescriptions,
+    checks,
+    findingsPage,
+    filters: { severity, checkId, q },
+  };
 };
 
 function ScanProgressCard({ status }: { status: string }) {
@@ -175,15 +204,200 @@ function findingDataFields(row: FindingRow): string[] {
   return fields;
 }
 
+const SEVERITY_OPTIONS = [
+  { label: "All severities", value: "" },
+  { label: "Critical", value: "CRITICAL" },
+  { label: "Warning", value: "WARNING" },
+  { label: "Unavailable", value: "UNAVAILABLE" },
+];
+
+function FilterBar({
+  scanId,
+  checks,
+  filters,
+}: {
+  scanId: string;
+  checks: { id: string; name: string }[];
+  filters: { severity: string; checkId: string; q: string };
+}) {
+  const [severity, setSeverity] = useState(filters.severity);
+  const [checkId, setCheckId] = useState(filters.checkId);
+  const [q, setQ] = useState(filters.q);
+
+  useEffect(() => {
+    setSeverity(filters.severity);
+    setCheckId(filters.checkId);
+    setQ(filters.q);
+  }, [filters.severity, filters.checkId, filters.q]);
+
+  const checkOptions = [
+    { label: "All checks", value: "" },
+    ...checks.map((check) => ({ label: check.name, value: check.id })),
+  ];
+
+  return (
+    <Card>
+      <Form method="get">
+        <InlineStack gap="400" blockAlign="end" wrap>
+          <Select
+            label="Severity"
+            name="severity"
+            options={SEVERITY_OPTIONS}
+            value={severity}
+            onChange={setSeverity}
+          />
+          <Select
+            label="Check"
+            name="checkId"
+            options={checkOptions}
+            value={checkId}
+            onChange={setCheckId}
+          />
+          <Box minWidth="16rem">
+            <TextField
+              label="Search"
+              name="q"
+              autoComplete="off"
+              value={q}
+              onChange={setQ}
+              placeholder="Product, variant, SKU, or barcode"
+            />
+          </Box>
+          <Button submit variant="primary">
+            Apply filters
+          </Button>
+          <Link url={`/app/scans/${scanId}`}>Clear filters</Link>
+        </InlineStack>
+      </Form>
+    </Card>
+  );
+}
+
+function FindingDetailModal({
+  finding,
+  checkNames,
+  checkDescriptions,
+  onClose,
+}: {
+  finding: FindingRow | null;
+  checkNames: Record<string, string>;
+  checkDescriptions: Record<string, string>;
+  onClose: () => void;
+}) {
+  if (!finding) return null;
+
+  const badge = SEVERITY_BADGE[finding.severity] ?? {
+    label: finding.severity,
+    tone: "info" as const,
+  };
+  const currency = finding.currency ?? "";
+
+  return (
+    <Modal
+      open={finding !== null}
+      onClose={onClose}
+      title={checkNames[finding.checkId] ?? finding.checkId}
+    >
+      <Modal.Section>
+        <BlockStack gap="400">
+          <InlineStack gap="200" blockAlign="center">
+            <Badge tone={badge.tone}>{badge.label}</Badge>
+            <Text as="span" variant="bodyMd" fontWeight="semibold">
+              {finding.productTitle}
+              {finding.variantTitle ? ` — ${finding.variantTitle}` : ""}
+            </Text>
+          </InlineStack>
+
+          {finding.productStatus && (
+            <Text as="p" variant="bodySm" tone="subdued">
+              Product status: {finding.productStatus}
+            </Text>
+          )}
+
+          <Text as="p" variant="bodyMd">
+            {checkDescriptions[finding.checkId] ?? ""}
+          </Text>
+
+          <Text as="p" variant="bodyMd">
+            {finding.explanation}
+          </Text>
+
+          {finding.severity === "WARNING" && (
+            <Banner tone="warning">
+              This may be an intentional configuration — review before
+              changing anything.
+            </Banner>
+          )}
+
+          <BlockStack gap="100">
+            <Text as="h3" variant="headingSm">
+              Pricing
+            </Text>
+            <Text as="p" variant="bodyMd">
+              Current price:{" "}
+              {finding.price !== null ? `${currency} ${finding.price}` : "—"}
+            </Text>
+            <Text as="p" variant="bodyMd">
+              Compare-at price:{" "}
+              {finding.compareAtPrice !== null
+                ? `${currency} ${finding.compareAtPrice}`
+                : "—"}
+            </Text>
+            <Text as="p" variant="bodyMd">
+              Unit cost:{" "}
+              {finding.unitCost !== null
+                ? `${currency} ${finding.unitCost}`
+                : "—"}
+            </Text>
+            <Text as="p" variant="bodyMd">
+              Gross margin estimate:{" "}
+              {finding.marginAmount !== null && finding.marginPercent !== null
+                ? `${currency} ${finding.marginAmount} (${finding.marginPercent.toFixed(1)}%)`
+                : "Not available — unit cost missing"}
+            </Text>
+          </BlockStack>
+
+          <BlockStack gap="100">
+            <Text as="h3" variant="headingSm">
+              Identifiers
+            </Text>
+            <Text as="p" variant="bodyMd">
+              SKU: {finding.sku ?? "—"}
+            </Text>
+            <Text as="p" variant="bodyMd">
+              Barcode: {finding.barcode ?? "—"}
+            </Text>
+          </BlockStack>
+
+          <Box>
+            <Button url={finding.adminUrl} external>
+              Open in Shopify
+            </Button>
+          </Box>
+        </BlockStack>
+      </Modal.Section>
+    </Modal>
+  );
+}
+
 function FindingsTable({
   findingsPage,
   checkNames,
+  onSelectFinding,
 }: {
   findingsPage: { findings: FindingRow[]; total: number; page: number; pageSize: number };
   checkNames: Record<string, string>;
+  onSelectFinding: (finding: FindingRow) => void;
 }) {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { findings, total, page, pageSize } = findingsPage;
+
+  const buildPageUrl = (targetPage: number) => {
+    const params = new URLSearchParams(searchParams);
+    params.set("page", String(targetPage));
+    return `?${params.toString()}`;
+  };
 
   const rowMarkup = findings.map((row, index) => {
     const badge = SEVERITY_BADGE[row.severity] ?? {
@@ -193,7 +407,12 @@ function FindingsTable({
     const dataFields = findingDataFields(row);
 
     return (
-      <IndexTable.Row id={row.id} key={row.id} position={index}>
+      <IndexTable.Row
+        id={row.id}
+        key={row.id}
+        position={index}
+        onClick={() => onSelectFinding(row)}
+      >
         <IndexTable.Cell>
           <Badge tone={badge.tone}>{badge.label}</Badge>
         </IndexTable.Cell>
@@ -221,9 +440,17 @@ function FindingsTable({
         </IndexTable.Cell>
         <IndexTable.Cell>{row.explanation}</IndexTable.Cell>
         <IndexTable.Cell>
-          <Link url={row.adminUrl} target="_blank" removeUnderline>
-            Open in Shopify
-          </Link>
+          {/* eslint-disable-next-line jsx-a11y/no-static-element-interactions, jsx-a11y/click-events-have-key-events -- stops the row's own onClick from double-firing when an inner action is used */}
+          <span onClick={(event) => event.stopPropagation()}>
+            <InlineStack gap="300">
+              <Link url={row.adminUrl} target="_blank" removeUnderline>
+                Open in Shopify
+              </Link>
+              <Button variant="plain" onClick={() => onSelectFinding(row)}>
+                Details
+              </Button>
+            </InlineStack>
+          </span>
         </IndexTable.Cell>
       </IndexTable.Row>
     );
@@ -263,8 +490,8 @@ function FindingsTable({
           <Pagination
             hasNext={hasNext}
             hasPrevious={hasPrevious}
-            onNext={() => navigate(`?page=${page + 1}`)}
-            onPrevious={() => navigate(`?page=${page - 1}`)}
+            onNext={() => navigate(buildPageUrl(page + 1))}
+            onPrevious={() => navigate(buildPageUrl(page - 1))}
           />
         </InlineStack>
       </Box>
@@ -273,8 +500,12 @@ function FindingsTable({
 }
 
 export default function ScanDetail() {
-  const { summary, checkNames, findingsPage } = useLoaderData<typeof loader>();
+  const { summary, checkNames, checkDescriptions, checks, findingsPage, filters } =
+    useLoaderData<typeof loader>();
   const revalidator = useRevalidator();
+  const [selectedFinding, setSelectedFinding] = useState<FindingRow | null>(
+    null,
+  );
 
   const isTerminal = TERMINAL_STATUSES.has(summary.status);
 
@@ -355,8 +586,23 @@ export default function ScanDetail() {
         </InlineStack>
 
         {findingsPage && (
-          <FindingsTable findingsPage={findingsPage} checkNames={checkNames} />
+          <FilterBar scanId={summary.id} checks={checks} filters={filters} />
         )}
+
+        {findingsPage && (
+          <FindingsTable
+            findingsPage={findingsPage}
+            checkNames={checkNames}
+            onSelectFinding={setSelectedFinding}
+          />
+        )}
+
+        <FindingDetailModal
+          finding={selectedFinding}
+          checkNames={checkNames}
+          checkDescriptions={checkDescriptions}
+          onClose={() => setSelectedFinding(null)}
+        />
       </BlockStack>
     </Page>
   );

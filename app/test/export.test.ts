@@ -45,6 +45,8 @@ function makeRow(overrides: Partial<FindingRow> = {}): FindingRow {
     sku: "SKU-123",
     barcode: "0123456789",
     productStatus: "ACTIVE",
+    marginAmount: "-2.00",
+    marginPercent: -25,
     ...overrides,
   };
 }
