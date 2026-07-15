@@ -20,9 +20,13 @@ api_version = "2026-07"
   uri = "/webhooks/app/scopes_update"
   topics = [ "app/scopes_update" ]
 
-  [[webhooks.subscriptions]]
-  uri = "/webhooks/compliance"
-  topics = [ "customers/data_request", "customers/redact", "shop/redact" ]
+  # GDPR / mandatory compliance webhooks are NOT regular subscriptions.
+  # They are declared here; all three point at the same /webhooks/compliance route,
+  # which switches on the topic (CUSTOMERS_DATA_REQUEST / CUSTOMERS_REDACT / SHOP_REDACT).
+  [webhooks.privacy_compliance]
+  customer_data_request_url = "/webhooks/compliance"
+  customer_deletion_url = "/webhooks/compliance"
+  shop_deletion_url = "/webhooks/compliance"
 
 [auth]
 redirect_urls = [ "https://example.com/api/auth" ]
