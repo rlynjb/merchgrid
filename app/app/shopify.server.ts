@@ -6,6 +6,7 @@ import {
 } from "@shopify/shopify-app-remix/server";
 import { PrismaSessionStorage } from "@shopify/shopify-app-session-storage-prisma";
 import prisma from "./db.server";
+import { ensureShop } from "./models/shop.server";
 
 const shopify = shopifyApp({
   apiKey: process.env.SHOPIFY_API_KEY,
@@ -16,6 +17,15 @@ const shopify = shopifyApp({
   authPathPrefix: "/auth",
   sessionStorage: new PrismaSessionStorage(prisma),
   distribution: AppDistribution.AppStore,
+  hooks: {
+    afterAuth: async ({ session }) => {
+      // Provision the Shop/ShopSettings rows immediately after OAuth
+      // completes (covers both fresh installs and reinstalls), then
+      // register webhooks for the shop as the Shopify template does.
+      await ensureShop(session.shop);
+      await shopify.registerWebhooks({ session });
+    },
+  },
   future: {
     unstable_newEmbeddedAuthStrategy: true,
     expiringOfflineAccessTokens: true,
