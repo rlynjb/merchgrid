@@ -4,16 +4,8 @@ import { normalizeCatalog } from "@merchgrid/catalog-core";
 import { ALL_CHECKS, runChecks } from "@merchgrid/catalog-checks";
 import type { CatalogCheckContext } from "@merchgrid/catalog-checks";
 import prisma from "../../db.server";
+import { CATALOG_API_VERSION } from "../../config";
 import { assertTransition, type ScanStatus } from "./state";
-
-// The Admin API version this scan pipeline targets. Intentionally NOT
-// imported from `app/shopify.server.ts`: that module calls `shopifyApp()`
-// at import time, which throws synchronously when `SHOPIFY_APP_URL` (and
-// other OAuth config) is unset — as it is in the test environment and in
-// any context that only needs to run/verify scans, not serve OAuth. Kept
-// as a plain literal here (matching `ApiVersion.July26` = "2026-07") so
-// this module has no dependency on the app's OAuth wiring.
-const CATALOG_API_VERSION = "2026-07";
 
 const GENERIC_FAILURE_MESSAGE =
   "The scan could not be completed. Please try again.";
@@ -73,29 +65,41 @@ export async function runScan(
   }
 
   const { shop } = scan;
-  const { settings } = shop;
 
-  if (!settings) {
-    throw new Error(`Shop settings missing for shop ${shop.id}`);
-  }
+  // Track the scan's actual current status locally as we advance it, so
+  // each assertTransition guards the *real* current status (protecting
+  // against a mis-ordered pipeline) rather than a hardcoded literal that
+  // would trivially always pass.
+  let currentStatus = scan.status as ScanStatus;
 
   try {
-    assertTransition(scan.status as ScanStatus, "READING_CATALOG");
+    // Everything from here on runs inside the try so any failure after the
+    // scan row is loaded — including a missing-ShopSettings precondition —
+    // routes through the FAILED path below rather than leaving the scan
+    // stuck at its prior status.
+    const { settings } = shop;
+    if (!settings) {
+      throw new Error(`Shop settings missing for shop ${shop.id}`);
+    }
+
+    assertTransition(currentStatus, "READING_CATALOG");
     await prisma.scan.update({
       where: { id: scanId },
       data: { status: "READING_CATALOG", startedAt: new Date() },
     });
+    currentStatus = "READING_CATALOG";
 
     const currencyCode = await fetchShopCurrencyCode(admin);
     const raw = await readCatalog(admin, {
       variantLimit: settings.catalogVariantLimit,
     });
 
-    assertTransition("READING_CATALOG", "RUNNING_CHECKS");
+    assertTransition(currentStatus, "RUNNING_CHECKS");
     await prisma.scan.update({
       where: { id: scanId },
       data: { status: "RUNNING_CHECKS" },
     });
+    currentStatus = "RUNNING_CHECKS";
 
     const snapshot = normalizeCatalog(raw, {
       shopId: shop.id,
@@ -111,13 +115,14 @@ export async function runScan(
     };
     const findings = runChecks(ALL_CHECKS, ctx);
 
-    assertTransition("RUNNING_CHECKS", "PREPARING_RESULTS");
+    assertTransition(currentStatus, "PREPARING_RESULTS");
     await prisma.scan.update({
       where: { id: scanId },
       data: { status: "PREPARING_RESULTS" },
     });
+    currentStatus = "PREPARING_RESULTS";
 
-    assertTransition("PREPARING_RESULTS", "COMPLETED");
+    assertTransition(currentStatus, "COMPLETED");
 
     const criticalCount = findings.filter((f) => f.severity === "CRITICAL").length;
     const warningCount = findings.filter((f) => f.severity === "WARNING").length;

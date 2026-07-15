@@ -97,6 +97,7 @@ const PRODUCTS_PAGE = {
 function createFakeAdmin(opts: {
   currencyCode?: string;
   failProductsQuery?: boolean;
+  productsPage?: unknown;
 } = {}): AdminGraphqlClient {
   return {
     async graphql(query: string) {
@@ -121,7 +122,7 @@ function createFakeAdmin(opts: {
         }
         return {
           async json() {
-            return PRODUCTS_PAGE;
+            return opts.productsPage ?? PRODUCTS_PAGE;
           },
         };
       }
@@ -130,11 +131,15 @@ function createFakeAdmin(opts: {
   };
 }
 
-async function seedShopAndScan() {
+async function seedShopAndScan(
+  opts: { settings?: Record<string, unknown> | null } = {},
+) {
   const shop = await prisma.shop.create({
     data: {
       shopDomain: "scan-runner-test.myshopify.com",
-      settings: { create: {} }, // defaults: minimumMarginPercent 20, catalogVariantLimit 5000
+      // Default settings: minimumMarginPercent 20, catalogVariantLimit 5000.
+      // Pass `settings: null` to seed a shop with NO ShopSettings row.
+      ...(opts.settings === null ? {} : { settings: { create: opts.settings ?? {} } }),
     },
     include: { settings: true },
   });
@@ -230,5 +235,50 @@ describe("runScan", () => {
     expect(updated.failedAt).toBeInstanceOf(Date);
 
     expect(await prisma.finding.count({ where: { scanId: scan.id } })).toBe(0);
+  });
+
+  it("routes a post-load precondition failure (missing ShopSettings) to FAILED, not stuck", async () => {
+    const { scan } = await seedShopAndScan({ settings: null });
+    const admin = createFakeAdmin();
+
+    await runScan(scan.id, admin, { now: () => FIXED_NOW });
+
+    const updated = await prisma.scan.findUniqueOrThrow({ where: { id: scan.id } });
+    expect(updated.status).toBe("FAILED");
+    expect(updated.status).not.toBe("QUEUED");
+    expect(updated.failureCode).toBe("SCAN_FAILED");
+    expect(updated.failureMessageSafe).toBe(
+      "The scan could not be completed. Please try again.",
+    );
+    expect(updated.failedAt).toBeInstanceOf(Date);
+    expect(await prisma.finding.count({ where: { scanId: scan.id } })).toBe(0);
+  });
+
+  it("completes but flags partial=true when the catalog read is truncated at the variant limit", async () => {
+    // catalogVariantLimit 2 + a products page that reports more pages
+    // available (hasNextPage: true) and holds more than 2 variants, so
+    // readCatalog stops early and returns partial: true.
+    const { scan } = await seedShopAndScan({ settings: { catalogVariantLimit: 2 } });
+
+    const truncatedPage = {
+      data: {
+        products: {
+          pageInfo: { hasNextPage: true, endCursor: "cursor-1" },
+          nodes: [
+            product("P1", [variant("p1a"), variant("p1b")]),
+            product("P2", [variant("p2a")]),
+          ],
+        },
+      },
+    };
+
+    const admin = createFakeAdmin({ productsPage: truncatedPage });
+
+    await runScan(scan.id, admin, { now: () => FIXED_NOW });
+
+    const updated = await prisma.scan.findUniqueOrThrow({ where: { id: scan.id } });
+    expect(updated.status).toBe("COMPLETED");
+    expect(updated.partial).toBe(true);
+    expect(updated.variantsProcessed).toBeGreaterThanOrEqual(2);
   });
 });
