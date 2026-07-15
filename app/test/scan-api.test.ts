@@ -286,6 +286,111 @@ describe("getScanFindings", () => {
       getScanFindings(shopB.shopDomain, scan.id),
     ).rejects.toThrow(ScanNotFoundError);
   });
+
+  it("filters by severity, reporting the filtered count as total", async () => {
+    const shop = await seedShop("scan-api-findings-severity-filter.myshopify.com");
+    const scan = await seedScan(shop.id);
+
+    await seedFinding(scan.id, shop.id, {
+      checkId: "check-critical",
+      severity: "CRITICAL",
+    });
+    await seedFinding(scan.id, shop.id, {
+      checkId: "check-warning",
+      severity: "WARNING",
+    });
+    await seedFinding(scan.id, shop.id, {
+      checkId: "check-unavailable",
+      severity: "UNAVAILABLE",
+    });
+
+    const page = await getScanFindings(shop.shopDomain, scan.id, {
+      severity: "WARNING",
+    });
+
+    expect(page.findings).toHaveLength(1);
+    expect(page.findings[0].severity).toBe("WARNING");
+    expect(page.total).toBe(1);
+  });
+
+  it("filters by checkId", async () => {
+    const shop = await seedShop("scan-api-findings-checkid-filter.myshopify.com");
+    const scan = await seedScan(shop.id);
+
+    await seedFinding(scan.id, shop.id, { checkId: "check-a" });
+    await seedFinding(scan.id, shop.id, { checkId: "check-b" });
+    await seedFinding(scan.id, shop.id, { checkId: "check-b" });
+
+    const page = await getScanFindings(shop.shopDomain, scan.id, {
+      checkId: "check-b",
+    });
+
+    expect(page.findings).toHaveLength(2);
+    expect(page.findings.every((f) => f.checkId === "check-b")).toBe(true);
+    expect(page.total).toBe(2);
+  });
+
+  it("filters by free-text search across productTitle, variantTitle, sku, and barcode, case-insensitively, with total reflecting the filtered count", async () => {
+    const shop = await seedShop("scan-api-findings-search-filter.myshopify.com");
+    const scan = await seedScan(shop.id);
+
+    await seedFinding(scan.id, shop.id, {
+      checkId: "check-sku-match",
+      sku: "ABC-123",
+      productTitle: "Unrelated product",
+    });
+    await seedFinding(scan.id, shop.id, {
+      checkId: "check-title-match",
+      productTitle: "Vintage Hoodie",
+    });
+    await seedFinding(scan.id, shop.id, {
+      checkId: "check-no-match",
+      productTitle: "Something else entirely",
+      sku: "XYZ-999",
+    });
+
+    const bySku = await getScanFindings(shop.shopDomain, scan.id, {
+      search: "abc-123",
+    });
+    expect(bySku.findings.map((f) => f.checkId)).toEqual(["check-sku-match"]);
+    expect(bySku.total).toBe(1);
+
+    const byTitle = await getScanFindings(shop.shopDomain, scan.id, {
+      search: "hoodie",
+    });
+    expect(byTitle.findings.map((f) => f.checkId)).toEqual([
+      "check-title-match",
+    ]);
+    expect(byTitle.total).toBe(1);
+  });
+
+  it("computes server-side margin fields when both price and unitCost are present, and null otherwise", async () => {
+    const shop = await seedShop("scan-api-findings-margin.myshopify.com");
+    const scan = await seedScan(shop.id);
+
+    await seedFinding(scan.id, shop.id, {
+      checkId: "check-with-margin",
+      price: "20.00",
+      unitCost: "8.00",
+    });
+    await seedFinding(scan.id, shop.id, {
+      checkId: "check-no-cost",
+      price: "20.00",
+      unitCost: null,
+    });
+
+    const page = await getScanFindings(shop.shopDomain, scan.id);
+
+    const withMargin = page.findings.find(
+      (f) => f.checkId === "check-with-margin",
+    );
+    expect(withMargin?.marginAmount).toBe("12.00");
+    expect(withMargin?.marginPercent).toBeCloseTo(60, 5);
+
+    const noCost = page.findings.find((f) => f.checkId === "check-no-cost");
+    expect(noCost?.marginAmount).toBeNull();
+    expect(noCost?.marginPercent).toBeNull();
+  });
 });
 
 describe("getAllFindingsForExport", () => {

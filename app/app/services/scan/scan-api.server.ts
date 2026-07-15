@@ -1,6 +1,7 @@
 import prisma from "../../db.server";
 import { enqueueScan, getActiveScan } from "./queue.server";
 import type { Scan } from "@prisma/client";
+import { formatMoney, marginAmount, marginPercent } from "@merchgrid/catalog-checks";
 
 /**
  * Thrown whenever the requested scan cannot be returned to the caller —
@@ -57,6 +58,8 @@ export interface FindingRow {
   sku: string | null;
   barcode: string | null;
   productStatus: string | null;
+  marginAmount: string | null;
+  marginPercent: number | null;
 }
 
 export interface FindingsPage {
@@ -179,6 +182,8 @@ function toFindingRow(f: {
   barcode: string | null;
   productStatus: string | null;
 }): FindingRow {
+  const hasMarginInputs = f.price !== null && f.unitCost !== null;
+
   return {
     id: f.id,
     checkId: f.checkId,
@@ -198,6 +203,12 @@ function toFindingRow(f: {
     sku: f.sku,
     barcode: f.barcode,
     productStatus: f.productStatus,
+    marginAmount: hasMarginInputs
+      ? formatMoney(marginAmount(f.price!, f.unitCost!))
+      : null,
+    marginPercent: hasMarginInputs
+      ? marginPercent(f.price!, f.unitCost!)
+      : null,
   };
 }
 
@@ -221,7 +232,13 @@ function sortBySeverityThenCheckId<T extends { severity: string; checkId: string
 export async function getScanFindings(
   shopDomain: string,
   scanId: string,
-  opts: { page?: number; pageSize?: number } = {},
+  opts: {
+    page?: number;
+    pageSize?: number;
+    severity?: string;
+    checkId?: string;
+    search?: string;
+  } = {},
 ): Promise<FindingsPage> {
   const shop = await resolveShopOrThrow(shopDomain);
   const scan = await loadOwnedScan(shop, scanId);
@@ -234,12 +251,33 @@ export async function getScanFindings(
     MAX_PAGE_SIZE,
   );
 
-  const [rows, total] = await Promise.all([
-    prisma.finding.findMany({ where: { scanId: scan.id } }),
-    prisma.finding.count({ where: { scanId: scan.id } }),
-  ]);
+  const where: Record<string, unknown> = { scanId: scan.id };
+  if (opts.severity) {
+    where.severity = opts.severity;
+  }
+  if (opts.checkId) {
+    where.checkId = opts.checkId;
+  }
 
-  const sorted = sortBySeverityThenCheckId(rows);
+  const rows = await prisma.finding.findMany({ where });
+
+  const search = opts.search?.trim().toLowerCase();
+  const filteredRows = search
+    ? rows.filter((row) => {
+        const haystacks = [
+          row.productTitle,
+          row.variantTitle,
+          row.sku,
+          row.barcode,
+        ];
+        return haystacks.some(
+          (value) => value != null && value.toLowerCase().includes(search),
+        );
+      })
+    : rows;
+
+  const total = filteredRows.length;
+  const sorted = sortBySeverityThenCheckId(filteredRows);
 
   const start = (page - 1) * pageSize;
   const pageRows = sorted.slice(start, start + pageSize);
