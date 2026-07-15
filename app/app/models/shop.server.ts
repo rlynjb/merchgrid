@@ -49,3 +49,20 @@ export async function ensureShop(
 export async function redactShop(shopDomain: string): Promise<void> {
   await prisma.shop.deleteMany({ where: { shopDomain } });
 }
+
+/**
+ * Marks a shop as uninstalled (`app/uninstalled` webhook). Only flips
+ * installStatus/uninstalledAt on the Shop row; it deliberately does NOT
+ * delete the shop's Scan/Finding/ScanArtifact data. That data is retained
+ * for the GDPR retention window and is only removed later by `redactShop`
+ * (the `shop/redact` webhook).
+ *
+ * Idempotent: if no Shop matches the domain, this is a no-op and does not
+ * throw.
+ */
+export async function markShopUninstalled(shopDomain: string): Promise<void> {
+  await prisma.shop.updateMany({
+    where: { shopDomain },
+    data: { installStatus: "UNINSTALLED", uninstalledAt: new Date() },
+  });
+}

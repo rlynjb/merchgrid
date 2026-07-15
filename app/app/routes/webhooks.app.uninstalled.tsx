@@ -1,6 +1,7 @@
 import type { ActionFunctionArgs } from "@remix-run/node";
 import { authenticate } from "../shopify.server";
 import db from "../db.server";
+import { markShopUninstalled } from "../models/shop.server";
 
 export const action = async ({ request }: ActionFunctionArgs) => {
   const { shop, session, topic } = await authenticate.webhook(request);
@@ -12,6 +13,11 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   if (session) {
     await db.session.deleteMany({ where: { shop } });
   }
+
+  // Mark the install inactive. This does NOT delete audit data (Scan/
+  // Finding rows) — that only happens later via the shop/redact GDPR
+  // webhook, preserving scan history during the retention window.
+  await markShopUninstalled(shop);
 
   return new Response();
 };
