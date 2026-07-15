@@ -58,11 +58,22 @@ describe("enqueueScan", () => {
     expect(scan.status).toBe("QUEUED");
   });
 
-  it("throws a plain Error (not ActiveScanError) when the shop or its settings are missing", async () => {
+  it("throws a plain Error (not ActiveScanError) when the shop does not exist", async () => {
     await expect(enqueueScan("does-not-exist")).rejects.toThrow();
     await expect(enqueueScan("does-not-exist")).rejects.not.toThrow(
       ActiveScanError,
     );
+  });
+
+  it("throws a plain Error (not ActiveScanError) when the shop exists but has no settings", async () => {
+    // Create a Shop with no ShopSettings row to cover the other half of the
+    // shop-or-settings-missing guard.
+    const shop = await prisma.shop.create({
+      data: { shopDomain: "scan-queue-no-settings.myshopify.com" },
+    });
+
+    await expect(enqueueScan(shop.id)).rejects.toThrow();
+    await expect(enqueueScan(shop.id)).rejects.not.toThrow(ActiveScanError);
   });
 });
 

@@ -29,22 +29,42 @@ const adminFactory: AdminFactory = async (shopDomain) => {
   return admin;
 };
 
+let shuttingDown = false;
+// Handle of the in-flight idle sleep timer, if any, so a shutdown signal
+// received while idle can cancel it and exit promptly rather than waiting
+// out the full POLL_MS.
+let idleSleepTimeout: ReturnType<typeof setTimeout> | null = null;
+let cancelIdleSleep: (() => void) | null = null;
+
 function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+  return new Promise((resolve) => {
+    idleSleepTimeout = setTimeout(() => {
+      idleSleepTimeout = null;
+      cancelIdleSleep = null;
+      resolve();
+    }, ms);
+    cancelIdleSleep = () => {
+      if (idleSleepTimeout) clearTimeout(idleSleepTimeout);
+      idleSleepTimeout = null;
+      cancelIdleSleep = null;
+      resolve();
+    };
+  });
 }
 
-let shuttingDown = false;
-
 function requestShutdown(signal: string): void {
-  console.error(`[worker] received ${signal}, shutting down after current iteration`);
+  console.log(`[worker] received ${signal}, shutting down after current iteration`);
   shuttingDown = true;
+  // If we're currently idling between polls, wake up immediately instead of
+  // waiting out the remaining sleep.
+  cancelIdleSleep?.();
 }
 
 process.on("SIGINT", () => requestShutdown("SIGINT"));
 process.on("SIGTERM", () => requestShutdown("SIGTERM"));
 
 async function main(): Promise<void> {
-  console.error("[worker] scan worker starting");
+  console.log("[worker] scan worker starting");
 
   while (!shuttingDown) {
     let scanId: string | null = null;
@@ -68,7 +88,7 @@ async function main(): Promise<void> {
     await sleep(POLL_MS);
   }
 
-  console.error("[worker] scan worker stopped");
+  console.log("[worker] scan worker stopped");
 }
 
 main().catch((err) => {

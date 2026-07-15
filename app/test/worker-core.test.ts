@@ -129,6 +129,91 @@ describe("claimAndRunNext", () => {
     expect(findings.length).toBeGreaterThan(0);
   });
 
+  it("fails a scan whose admin factory throws, returning its id and leaving no findings", async () => {
+    const shop = await seedShop("worker-core-poison-test.myshopify.com");
+    const scan = await prisma.scan.create({
+      data: {
+        shopId: shop.id,
+        status: "QUEUED",
+        apiVersion: "2026-07",
+        minimumMarginPercentUsed: 20,
+      },
+    });
+
+    const factory: AdminFactory = async () => {
+      // Simulates unauthenticated.admin(shopDomain) throwing because the
+      // shop uninstalled and its Session row was deleted.
+      throw new Error("no offline session for shop; internal detail xyz");
+    };
+
+    const result = await claimAndRunNext(factory, { now: () => FIXED_NOW });
+
+    expect(result).toBe(scan.id);
+
+    const updated = await prisma.scan.findUniqueOrThrow({ where: { id: scan.id } });
+    expect(updated.status).toBe("FAILED");
+    expect(updated.failureCode).toBe("ADMIN_UNAVAILABLE");
+    expect(updated.failureMessageSafe).toBe(
+      "The scan could not be completed. Please try again.",
+    );
+    // Generic message must not leak the underlying error detail.
+    expect(updated.failureMessageSafe).not.toContain("xyz");
+    expect(updated.failedAt).toBeInstanceOf(Date);
+
+    expect(await prisma.finding.count({ where: { scanId: scan.id } })).toBe(0);
+  });
+
+  it("advances past a poison-pill scan: fails the older broken one, then completes the newer working one (no livelock)", async () => {
+    const brokenShop = await seedShop("worker-core-broken.myshopify.com");
+    const workingShop = await seedShop("worker-core-working.myshopify.com");
+
+    const older = await prisma.scan.create({
+      data: {
+        shopId: brokenShop.id,
+        status: "QUEUED",
+        apiVersion: "2026-07",
+        minimumMarginPercentUsed: 20,
+        createdAt: new Date("2026-07-01T00:00:00.000Z"),
+      },
+    });
+    const newer = await prisma.scan.create({
+      data: {
+        shopId: workingShop.id,
+        status: "QUEUED",
+        apiVersion: "2026-07",
+        minimumMarginPercentUsed: 20,
+        createdAt: new Date("2026-07-10T00:00:00.000Z"),
+      },
+    });
+
+    // Factory throws for the broken shop, works for the working shop —
+    // exactly the mixed-fleet scenario where a livelock would starve the
+    // healthy shop.
+    const factory: AdminFactory = async (shopDomain) => {
+      if (shopDomain === "worker-core-broken.myshopify.com") {
+        throw new Error("no offline session for uninstalled shop");
+      }
+      return createFakeAdmin();
+    };
+
+    // First claim: the OLDER (broken) scan is selected and FAILED.
+    const firstResult = await claimAndRunNext(factory, { now: () => FIXED_NOW });
+    expect(firstResult).toBe(older.id);
+    const olderUpdated = await prisma.scan.findUniqueOrThrow({ where: { id: older.id } });
+    expect(olderUpdated.status).toBe("FAILED");
+
+    // Second claim: with the broken scan no longer QUEUED, the newer scan
+    // is now the oldest QUEUED and runs to COMPLETED — proving the broken
+    // scan did not permanently block the queue.
+    const secondResult = await claimAndRunNext(factory, { now: () => FIXED_NOW });
+    expect(secondResult).toBe(newer.id);
+    const newerUpdated = await prisma.scan.findUniqueOrThrow({ where: { id: newer.id } });
+    expect(newerUpdated.status).toBe("COMPLETED");
+    expect(
+      await prisma.finding.count({ where: { scanId: newer.id } }),
+    ).toBeGreaterThan(0);
+  });
+
   it("picks the OLDER of two QUEUED scans first", async () => {
     const shop = await seedShop("worker-core-order-test.myshopify.com");
 

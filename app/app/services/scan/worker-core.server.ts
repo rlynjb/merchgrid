@@ -41,7 +41,39 @@ export async function claimAndRunNext(
     return null;
   }
 
-  const admin = await adminFactory(scan.shop.shopDomain);
+  let admin: AdminGraphqlClient;
+  try {
+    admin = await adminFactory(scan.shop.shopDomain);
+  } catch (err) {
+    // Poison-pill guard: obtaining the Admin client can fail for reasons
+    // outside runScan's own try/catch — most importantly, a shop that
+    // uninstalled has had its Session row deleted (by the app/uninstalled
+    // webhook) while its still-QUEUED scan is retained, so
+    // `unauthenticated.admin(shopDomain)` throws. If we let that propagate,
+    // the scan is never advanced out of QUEUED; since we always select the
+    // OLDEST QUEUED scan globally, we'd re-select this same broken row on
+    // every poll and no other shop's scan could ever run (livelock).
+    //
+    // So mark THIS scan FAILED ourselves (generic, non-leaking message —
+    // the real error is logged server-side only) and RETURN its id, letting
+    // the worker treat it as processed and advance to the next scan.
+    console.error(
+      `[worker-core] admin factory failed for scan ${scan.id} (shop ${scan.shop.shopDomain})`,
+      err,
+    );
+    await prisma.scan.update({
+      where: { id: scan.id },
+      data: {
+        status: "FAILED",
+        failedAt: new Date(),
+        failureCode: "ADMIN_UNAVAILABLE",
+        failureMessageSafe:
+          "The scan could not be completed. Please try again.",
+      },
+    });
+    return scan.id;
+  }
+
   await runScan(scan.id, admin, deps);
 
   return scan.id;
