@@ -50,6 +50,13 @@ export interface FindingRow {
   evidence: Record<string, unknown>;
   explanation: string;
   detectedAt: string;
+  price: string | null;
+  compareAtPrice: string | null;
+  unitCost: string | null;
+  currency: string | null;
+  sku: string | null;
+  barcode: string | null;
+  productStatus: string | null;
 }
 
 export interface FindingsPage {
@@ -182,6 +189,13 @@ export async function getScanFindings(
     evidence: JSON.parse(f.evidenceJson),
     explanation: f.explanation,
     detectedAt: f.detectedAt.toISOString(),
+    price: f.price,
+    compareAtPrice: f.compareAtPrice,
+    unitCost: f.unitCost,
+    currency: f.currencyCode,
+    sku: f.sku,
+    barcode: f.barcode,
+    productStatus: f.productStatus,
   }));
 
   return { findings, total, page, pageSize };

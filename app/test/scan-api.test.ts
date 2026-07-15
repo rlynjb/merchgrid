@@ -56,6 +56,13 @@ async function seedFinding(
       evidenceJson: JSON.stringify({ foo: "bar" }),
       explanation: "Something is off.",
       detectedAt: new Date(),
+      price: null,
+      compareAtPrice: null,
+      unitCost: null,
+      currencyCode: null,
+      sku: null,
+      barcode: null,
+      productStatus: null,
       ...overrides,
     },
   });
@@ -157,6 +164,55 @@ describe("getScanFindings", () => {
     const warningFinding = page.findings.find((f) => f.checkId === "m-check");
     expect(warningFinding?.evidence).toEqual({ nested: { value: 42 } });
     expect(typeof warningFinding?.evidence).toBe("object");
+  });
+
+  it("returns the denormalized per-variant fields on a FindingRow, mapping currency from currencyCode", async () => {
+    const shop = await seedShop("scan-api-variant-fields.myshopify.com");
+    const scan = await seedScan(shop.id);
+
+    await seedFinding(scan.id, shop.id, {
+      checkId: "variant-fields-check",
+      severity: "WARNING",
+      price: "8.00",
+      compareAtPrice: "12.00",
+      unitCost: "10.00",
+      currencyCode: "USD",
+      sku: "SKU-123",
+      barcode: "0123456789",
+      productStatus: "ACTIVE",
+    });
+
+    const page = await getScanFindings(shop.shopDomain, scan.id);
+    const finding = page.findings.find((f) => f.checkId === "variant-fields-check");
+
+    expect(finding).toBeDefined();
+    expect(finding!.price).toBe("8.00");
+    expect(typeof finding!.price).toBe("string");
+    expect(finding!.compareAtPrice).toBe("12.00");
+    expect(finding!.unitCost).toBe("10.00");
+    expect(finding!.currency).toBe("USD");
+    expect(finding!.sku).toBe("SKU-123");
+    expect(finding!.barcode).toBe("0123456789");
+    expect(finding!.productStatus).toBe("ACTIVE");
+  });
+
+  it("returns nulls for the per-variant fields when a finding has no matching variant data", async () => {
+    const shop = await seedShop("scan-api-variant-fields-null.myshopify.com");
+    const scan = await seedScan(shop.id);
+
+    await seedFinding(scan.id, shop.id, { checkId: "no-variant-check" });
+
+    const page = await getScanFindings(shop.shopDomain, scan.id);
+    const finding = page.findings.find((f) => f.checkId === "no-variant-check");
+
+    expect(finding).toBeDefined();
+    expect(finding!.price).toBeNull();
+    expect(finding!.compareAtPrice).toBeNull();
+    expect(finding!.unitCost).toBeNull();
+    expect(finding!.currency).toBeNull();
+    expect(finding!.sku).toBeNull();
+    expect(finding!.barcode).toBeNull();
+    expect(finding!.productStatus).toBeNull();
   });
 
   it("paginates results using page/pageSize", async () => {

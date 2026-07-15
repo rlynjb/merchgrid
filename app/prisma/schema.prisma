@@ -100,6 +100,17 @@ model Finding {
   explanation  String
   detectedAt   DateTime
   createdAt    DateTime @default(now())
+  // Denormalized per-variant fields, copied from the CatalogSnapshot at scan
+  // time (never re-fetched later). Deliberately NOT the whole catalog — just
+  // enough for the CSV export and finding-detail UI to be self-contained
+  // (spec §9.5/§9.6) without persisting unrelated, non-flagged variants.
+  price          String?
+  compareAtPrice String?
+  unitCost       String?
+  currencyCode   String?
+  sku            String?
+  barcode        String?
+  productStatus  String?
   @@index([scanId, severity])
 }
 

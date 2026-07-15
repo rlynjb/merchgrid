@@ -128,20 +128,38 @@ export async function runScan(
     const warningCount = findings.filter((f) => f.severity === "WARNING").length;
     const unavailableCount = findings.filter((f) => f.severity === "UNAVAILABLE").length;
 
-    const findingRows = findings.map((f) => ({
-      scanId,
-      shopId: shop.id,
-      checkId: f.checkId,
-      severity: f.severity,
-      productId: f.productId,
-      variantId: f.variantId ?? null,
-      productTitle: f.productTitle,
-      variantTitle: f.variantTitle ?? null,
-      adminUrl: f.adminUrl,
-      evidenceJson: JSON.stringify(f.evidence),
-      explanation: f.explanation,
-      detectedAt: new Date(f.detectedAt),
-    }));
+    // Keyed by variantId so each persisted finding can be denormalized with
+    // its variant's price/cost/sku/etc (spec §9.5/§9.6: CSV export and the
+    // finding-detail UI need these self-contained on the finding, since we
+    // deliberately do not persist the whole catalog).
+    const variantsById = new Map(
+      snapshot.variants.map((v) => [v.variantId, v] as const),
+    );
+
+    const findingRows = findings.map((f) => {
+      const variant = f.variantId ? variantsById.get(f.variantId) : undefined;
+      return {
+        scanId,
+        shopId: shop.id,
+        checkId: f.checkId,
+        severity: f.severity,
+        productId: f.productId,
+        variantId: f.variantId ?? null,
+        productTitle: f.productTitle,
+        variantTitle: f.variantTitle ?? null,
+        adminUrl: f.adminUrl,
+        evidenceJson: JSON.stringify(f.evidence),
+        explanation: f.explanation,
+        detectedAt: new Date(f.detectedAt),
+        price: variant?.price ?? null,
+        compareAtPrice: variant?.compareAtPrice ?? null,
+        unitCost: variant?.unitCost ?? null,
+        currencyCode: variant?.currencyCode ?? null,
+        sku: variant?.sku ?? null,
+        barcode: variant?.barcode ?? null,
+        productStatus: variant?.productStatus ?? null,
+      };
+    });
 
     // Delete any findings left over from a previous (failed or retried)
     // attempt at this scan, insert the fresh set, and mark the scan

@@ -185,6 +185,26 @@ describe("runScan", () => {
     const mg002Evidence = JSON.parse(mg002!.evidenceJson);
     expect(mg002Evidence).toHaveProperty("lossPerUnit");
 
+    // Per-variant fields are denormalized onto the finding (from the fake
+    // catalog's below-cost variant a1: price "8.00" < unitCost "10.00").
+    // Money fields are stored verbatim as strings — never coerced to float.
+    expect(mg002!.price).toBe("8.00");
+    expect(typeof mg002!.price).toBe("string");
+    expect(mg002!.unitCost).toBe("10.00");
+    expect(mg002!.currencyCode).toBe("USD");
+    expect(mg002!.sku).toBe("SKU-A1");
+    expect(mg002!.compareAtPrice).toBeNull();
+    expect(mg002!.barcode).toBeNull();
+    expect(mg002!.productStatus).toBe("ACTIVE");
+
+    const dupSkuFindings = findings.filter((f) => f.checkId === "mg-005");
+    expect(dupSkuFindings.length).toBe(2);
+    for (const f of dupSkuFindings) {
+      expect(f.sku).toBe("DUP");
+      expect(f.price).toBe("15.00");
+      expect(f.unitCost).toBe("9.00");
+    }
+
     for (const f of findings) {
       expect(f.detectedAt.toISOString()).toBe(FIXED_NOW);
     }
