@@ -15,22 +15,47 @@ import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 
 const ALGORITHM = "aes-256-gcm";
 const IV_LENGTH_BYTES = 12;
-const ENCRYPTED_PREFIX = "enc:v1:";
+// Generic envelope marker used to detect ANY version of our encrypted
+// format. Legacy Shopify tokens (shpat_/shprt_/...) never start with
+// `enc:`, so this cleanly separates our envelopes from plaintext. The
+// concrete write format below is version-tagged (`enc:v1:...`); an
+// unknown version is still recognized as an envelope so decryptToken
+// rejects it loudly rather than silently returning it as "plaintext".
+const ENCRYPTED_MARKER = "enc:";
+const CURRENT_VERSION = "v1";
 
-function keyBufferFromHex(keyHex: string): Buffer {
+/**
+ * Throws a clear error unless `keyHex` is exactly 64 hex characters
+ * (32 bytes) suitable for AES-256. Exported so callers (e.g. the
+ * EncryptedSessionStorage constructor) can fail fast at startup rather
+ * than deep inside a later encrypt/decrypt call.
+ */
+export function assertValidKey(keyHex: string): void {
   if (!/^[0-9a-fA-F]{64}$/.test(keyHex)) {
     throw new Error(
       "Invalid session encryption key: expected 64 hex characters (32 bytes) for AES-256-GCM.",
     );
   }
+}
+
+function keyBufferFromHex(keyHex: string): Buffer {
+  assertValidKey(keyHex);
   return Buffer.from(keyHex, "hex");
 }
 
 export function isEncrypted(value: string): boolean {
-  return typeof value === "string" && value.startsWith(ENCRYPTED_PREFIX);
+  return typeof value === "string" && value.startsWith(ENCRYPTED_MARKER);
 }
 
 export function encryptToken(plaintext: string, keyHex: string): string {
+  if (isEncrypted(plaintext)) {
+    // Guard against double-wrapping: an already-encrypted value should
+    // never be handed to encryptToken. Fail loudly so an integration
+    // mistake surfaces instead of silently nesting enc:v1: envelopes.
+    throw new Error(
+      "encryptToken received an already-encrypted value (double encryption).",
+    );
+  }
   const key = keyBufferFromHex(keyHex);
   const iv = randomBytes(IV_LENGTH_BYTES);
   const cipher = createCipheriv(ALGORITHM, key, iv);
@@ -42,7 +67,7 @@ export function encryptToken(plaintext: string, keyHex: string): string {
 
   return [
     "enc",
-    "v1",
+    CURRENT_VERSION,
     iv.toString("base64"),
     authTag.toString("base64"),
     ciphertext.toString("base64"),
@@ -67,7 +92,7 @@ export function decryptToken(value: string, keyHex: string): string {
     );
   }
   const [, version, ivB64, authTagB64, ciphertextB64] = parts;
-  if (version !== "v1") {
+  if (version !== CURRENT_VERSION) {
     throw new Error(`Unsupported encrypted token version: ${version}`);
   }
 

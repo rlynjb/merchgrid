@@ -1,6 +1,10 @@
 import type { Session } from "@shopify/shopify-api";
 import type { SessionStorage } from "@shopify/shopify-app-session-storage";
-import { decryptToken, encryptToken } from "./token-crypto.server";
+import {
+  assertValidKey,
+  decryptToken,
+  encryptToken,
+} from "./token-crypto.server";
 
 /**
  * Decorates a `SessionStorage` implementation (in practice, the Prisma
@@ -17,7 +21,15 @@ export class EncryptedSessionStorage implements SessionStorage {
   constructor(
     private readonly inner: SessionStorage,
     private readonly keyHex: string,
-  ) {}
+  ) {
+    // Validate the key eagerly so a misconfigured SESSION_ENCRYPTION_KEY
+    // (wrong length / non-hex) throws at process startup — caught by the
+    // Fly health check on deploy — instead of surfacing much later from
+    // deep in the OAuth path on the first storeSession (token refresh /
+    // reinstall), while legacy plaintext loads would keep working and
+    // mask the problem.
+    assertValidKey(keyHex);
+  }
 
   async storeSession(session: Session): Promise<boolean> {
     // Clone before mutating: the caller keeps using `session` in-request

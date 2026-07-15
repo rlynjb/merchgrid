@@ -60,6 +60,19 @@ describe("token-crypto", () => {
     expect(() => decryptToken(encrypted, OTHER_KEY)).toThrow();
   });
 
+  it("throws when an encrypted value has the wrong number of parts", () => {
+    expect(() => decryptToken("enc:v1:onlytwoparts", KEY)).toThrow(/malformed/i);
+  });
+
+  it("throws on an unknown encrypted format version", () => {
+    expect(() => decryptToken("enc:v2:a:b:c", KEY)).toThrow(/version/i);
+  });
+
+  it("throws when asked to encrypt an already-encrypted value", () => {
+    const encrypted = encryptToken("shpat_no-double-wrap", KEY);
+    expect(() => encryptToken(encrypted, KEY)).toThrow(/double encryption/i);
+  });
+
   it("throws a clear error when the key is not 64 hex chars", () => {
     expect(() => encryptToken("token", "tooshort")).toThrow(/64 hex/i);
     expect(() => encryptToken("token", "z".repeat(64))).toThrow(/64 hex/i); // not valid hex

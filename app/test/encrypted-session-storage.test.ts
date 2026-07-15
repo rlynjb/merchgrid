@@ -54,6 +54,12 @@ describe("EncryptedSessionStorage", () => {
     storage = new EncryptedSessionStorage(inner, KEY);
   });
 
+  it("throws at construction when the key is malformed (fail fast at startup)", () => {
+    expect(() => new EncryptedSessionStorage(inner, "tooshort")).toThrow(
+      /64 hex/i,
+    );
+  });
+
   it("stores an encrypted accessToken in the inner storage", async () => {
     const session = makeSession();
     await storage.storeSession(session);
