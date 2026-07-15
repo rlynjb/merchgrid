@@ -1,5 +1,5 @@
 import prisma from "../../db.server";
-import { enqueueScan } from "./queue.server";
+import { enqueueScan, getActiveScan } from "./queue.server";
 import type { Scan } from "@prisma/client";
 
 /**
@@ -124,6 +124,25 @@ export async function startScan(shopDomain: string): Promise<ScanSummary> {
 
   const scan = await enqueueScan(shop.id);
   return toScanSummary(scan);
+}
+
+/**
+ * Returns the summary of the shop's currently active (non-terminal) scan, if
+ * any. Resolves `shopDomain` to a shop first; an unknown domain (or a shop
+ * with no active scan) both resolve to `null` rather than throwing, since
+ * this is used by UI code that just wants to know whether to link to an
+ * in-progress scan.
+ */
+export async function getActiveScanForShop(
+  shopDomain: string,
+): Promise<ScanSummary | null> {
+  const shop = await prisma.shop.findUnique({ where: { shopDomain } });
+  if (!shop) {
+    return null;
+  }
+
+  const scan = await getActiveScan(shop.id);
+  return scan ? toScanSummary(scan) : null;
 }
 
 /**

@@ -7,6 +7,7 @@ import {
   startScan,
   getScanSummary,
   getScanFindings,
+  getActiveScanForShop,
 } from "../app/services/scan/scan-api.server";
 
 async function seedShop(
@@ -87,6 +88,37 @@ describe("startScan", () => {
 
   it("throws when the shop domain does not resolve to a known shop", async () => {
     await expect(startScan("no-such-shop.myshopify.com")).rejects.toThrow();
+  });
+});
+
+describe("getActiveScanForShop", () => {
+  it("returns the active scan's summary when one is in flight", async () => {
+    const shop = await seedShop("scan-api-active.myshopify.com");
+    const scan = await seedScan(shop.id, { status: "READING_CATALOG" });
+
+    const summary = await getActiveScanForShop(shop.shopDomain);
+
+    expect(summary).not.toBeNull();
+    expect(summary?.id).toBe(scan.id);
+    expect(summary?.status).toBe("READING_CATALOG");
+  });
+
+  it("returns null when the shop only has terminal scans", async () => {
+    const shop = await seedShop("scan-api-active-terminal.myshopify.com");
+    await seedScan(shop.id, { status: "COMPLETED" });
+    await seedScan(shop.id, { status: "FAILED" });
+
+    const summary = await getActiveScanForShop(shop.shopDomain);
+
+    expect(summary).toBeNull();
+  });
+
+  it("returns null for an unknown shop domain", async () => {
+    const summary = await getActiveScanForShop(
+      "scan-api-active-unknown.myshopify.com",
+    );
+
+    expect(summary).toBeNull();
   });
 });
 
