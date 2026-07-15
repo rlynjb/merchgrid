@@ -20,7 +20,9 @@
     "vite": "vite",
     "test": "vitest run",
     "test:engine": "vitest run --config packages/vitest.config.ts",
-    "worker": "tsx worker.ts"
+    "worker": "tsx worker.ts",
+    "seed:fixtures": "tsx scripts/seed-fixtures.ts",
+    "seed:fixtures:clean": "tsx scripts/seed-fixtures.ts --clean"
   },
   "type": "module",
   "engines": {
