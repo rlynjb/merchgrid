@@ -72,6 +72,8 @@ Cross-link: SQLite's own transaction/locking mechanics belong to `study-database
 
 `not yet exercised`: circuit breakers, bulkheads, or a dead-letter queue for scans that fail repeatedly (a scan that fails is simply `FAILED`; the merchant must manually retry by starting a new scan — there's no automatic retry-with-backoff at the scan level, only inside a single `readCatalog` call).
 
+This lens describes the mechanics; the reliability *posture* those mechanics add up to (is it "meets," "at risk," or "gap," and against what target) is the non-functional-requirements audit's job — see `.aipe/study-nonfunctional-requirements/audit.md` lens 2 (reliability) and lens 6 (durability, folded under availability/security/privacy).
+
 ## 7. Scale bottlenecks and evolution
 
 What breaks first at 10x merchants: the single global poll loop. `claimAndRunNext` selects "the oldest `QUEUED` scan across all shops" (`worker-core.server.ts:34-38`) with exactly one worker process consuming it — the code comments this explicitly as a "single-worker model" that is "intentionally not an atomic claim-then-lock" (`worker-core.server.ts:22-28`). At 10x scan volume, scans queue up serially behind each other regardless of shop; at 100x, the SQLite single-writer file becomes the second bottleneck (one process, one file, no read replicas).
@@ -81,6 +83,8 @@ What stays stable: the request/response side (Remix reads scale with SQLite's re
 What would force rearchitecture: adding a second worker process. The code names its own future failure mode — `worker-core.server.ts:22-28` says a second worker needs "an atomic conditional update (`UPDATE Scan SET status='READING_CATALOG' WHERE id=? AND status='QUEUED'`, checking the affected-row count)" instead of a plain `findFirst`, or two workers will race and claim the same scan. Similarly, `queue.server.ts:54-62` names a real TOCTOU race in `enqueueScan` itself (check-then-create isn't atomic) that's currently "acceptable for MVP" only because there's a single worker and low concurrency — the fix would be a partial unique index on `(shopId)` where status is non-terminal.
 
 Moving off single-machine-SQLite would also force the deploy topology in `06-single-machine-shared-volume.md` to change — a second machine can't mount the same Fly volume, so scaling the worker or the web tier independently requires a real datastore migration (Postgres) first.
+
+This lens names where scale breaks; whether that ceiling is acceptable *right now* against an actual scalability requirement (and not just a hypothetical 10x/100x) is the non-functional-requirements audit's call — see `.aipe/study-nonfunctional-requirements/audit.md` lens 3 (scalability), which independently ranks this same single-worker queue claim as its #1 cross-cutting finding.
 
 ## 8. System-design red flags — ranked
 

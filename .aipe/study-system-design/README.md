@@ -23,3 +23,4 @@ This guide owns architectural boundaries and tradeoffs only. For mechanism-level
 - **`.aipe/study-distributed-systems/`** — not applicable yet; this repo runs a single worker process (see `audit.md` → scale-bottlenecks lens, `not yet exercised`).
 - **`.aipe/study-runtime-systems/`** — the Node event loop / process model underneath `worker.ts`'s poll loop and `start-production.js`'s child-process supervision.
 - **`.aipe/study-dsa-foundations/`** — no repo-specific data-structure/algorithm curriculum lives here; this repo's "queue" is a SQL table, not an in-memory structure.
+- **`.aipe/study-nonfunctional-requirements/`** — the cross-cutting NFR audit (reliability, scalability, maintainability, latency, availability, security, observability, cost); this guide's failure-handling and scale-bottlenecks lenses describe the mechanics, that guide judges the resulting posture against a target.
