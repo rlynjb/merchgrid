@@ -21,6 +21,7 @@ import {
   claimAndRunNext,
   type AdminFactory,
 } from "./app/services/scan/worker-core.server";
+import { logEvent } from "./app/services/observability/log-event.server";
 
 const POLL_MS = 5000;
 
@@ -53,7 +54,7 @@ function sleep(ms: number): Promise<void> {
 }
 
 function requestShutdown(signal: string): void {
-  console.log(`[worker] received ${signal}, shutting down after current iteration`);
+  logEvent("worker_shutdown_requested", { signal });
   shuttingDown = true;
   // If we're currently idling between polls, wake up immediately instead of
   // waiting out the remaining sleep.
@@ -64,7 +65,7 @@ process.on("SIGINT", () => requestShutdown("SIGINT"));
 process.on("SIGTERM", () => requestShutdown("SIGTERM"));
 
 async function main(): Promise<void> {
-  console.log("[worker] scan worker starting");
+  logEvent("worker_started");
 
   while (!shuttingDown) {
     let scanId: string | null = null;
@@ -88,7 +89,7 @@ async function main(): Promise<void> {
     await sleep(POLL_MS);
   }
 
-  console.log("[worker] scan worker stopped");
+  logEvent("worker_stopped");
 }
 
 main().catch((err) => {

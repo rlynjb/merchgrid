@@ -1,6 +1,7 @@
 import type { AdminGraphqlClient } from "../shopify/catalog-reader.server";
 import prisma from "../../db.server";
 import { runScan, type RunScanDeps } from "./runner.server";
+import { logEvent } from "../observability/log-event.server";
 
 /**
  * Produces an Admin GraphQL client for a shop identified only by domain —
@@ -41,6 +42,12 @@ export async function claimAndRunNext(
     return null;
   }
 
+  logEvent("scan_claimed", {
+    scanId: scan.id,
+    shopId: scan.shopId,
+    queueWaitMs: Date.now() - scan.createdAt.getTime(),
+  });
+
   let admin: AdminGraphqlClient;
   try {
     admin = await adminFactory(scan.shop.shopDomain);
@@ -61,6 +68,10 @@ export async function claimAndRunNext(
       `[worker-core] admin factory failed for scan ${scan.id} (shop ${scan.shop.shopDomain})`,
       err,
     );
+    logEvent("scan_admin_unavailable", {
+      scanId: scan.id,
+      shopDomain: scan.shop.shopDomain,
+    });
     await prisma.scan.update({
       where: { id: scan.id },
       data: {

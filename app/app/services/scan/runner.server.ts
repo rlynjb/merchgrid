@@ -7,6 +7,7 @@ import prisma from "../../db.server";
 import { CATALOG_API_VERSION } from "../../config";
 import { assertTransition, type ScanStatus } from "./state";
 import { buildSearchText, severityToRank } from "./severity";
+import { logEvent } from "../observability/log-event.server";
 
 const GENERIC_FAILURE_MESSAGE =
   "The scan could not be completed. Please try again.";
@@ -82,6 +83,12 @@ export async function runScan(
   // would trivially always pass.
   let currentStatus = scan.status as ScanStatus;
 
+  // Declared outside the try block so the catch block can still reference
+  // it (to compute a failure durationMs) even when the failure happens
+  // before the scan reaches READING_CATALOG (e.g. the missing-ShopSettings
+  // precondition below).
+  let startedAt: Date | undefined;
+
   try {
     // Everything from here on runs inside the try so any failure after the
     // scan row is loaded — including a missing-ShopSettings precondition —
@@ -93,11 +100,13 @@ export async function runScan(
     }
 
     assertTransition(currentStatus, "READING_CATALOG");
+    startedAt = new Date();
     await prisma.scan.update({
       where: { id: scanId },
-      data: { status: "READING_CATALOG", startedAt: new Date() },
+      data: { status: "READING_CATALOG", startedAt },
     });
     currentStatus = "READING_CATALOG";
+    logEvent("scan_started", { scanId, shopId: shop.id, shopDomain: shop.shopDomain });
 
     const currencyCode = await fetchShopCurrencyCode(admin);
     const raw = await readCatalog(admin, {
@@ -184,6 +193,7 @@ export async function runScan(
     // COMPLETED — all in one transaction, so a crash partway through
     // can never leave a scan COMPLETED with stale/duplicate findings, or
     // findings persisted without a completed scan to anchor them.
+    const completedAt = new Date();
     await prisma.$transaction([
       prisma.finding.deleteMany({ where: { scanId } }),
       ...(findingRows.length > 0
@@ -193,7 +203,7 @@ export async function runScan(
         where: { id: scanId },
         data: {
           status: "COMPLETED",
-          completedAt: new Date(),
+          completedAt,
           criticalCount,
           warningCount,
           unavailableCount,
@@ -205,12 +215,28 @@ export async function runScan(
         },
       }),
     ]);
+    logEvent("scan_completed", {
+      scanId,
+      shopId: shop.id,
+      durationMs: startedAt ? completedAt.getTime() - startedAt.getTime() : null,
+      productsProcessed: snapshot.productsProcessed,
+      variantsProcessed: snapshot.variantsProcessed,
+      criticalCount,
+      warningCount,
+      unavailableCount,
+      partial: snapshot.partial,
+    });
   } catch (err) {
     // Log the real error server-side only — never expose internals
     // (query text, stack traces, upstream error text) to the scan record
     // or, transitively, to end users (spec section on safe error
     // messaging).
     console.error(`[scan:${scanId}] scan run failed`, err);
+    logEvent("scan_failed", {
+      scanId,
+      shopId: shop.id,
+      durationMs: startedAt ? Date.now() - startedAt.getTime() : null,
+    });
 
     await prisma.scan.update({
       where: { id: scanId },
