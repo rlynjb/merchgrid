@@ -506,6 +506,43 @@ export default function ScanDetail() {
   const [selectedFinding, setSelectedFinding] = useState<FindingRow | null>(
     null,
   );
+  const [exportPending, setExportPending] = useState(false);
+  const [exportError, setExportError] = useState(false);
+
+  async function handleExportCsv(scanId: string) {
+    // Deliberately a plain in-page fetch (not window.open/a navigation):
+    // firing from inside the embedded iframe lets App Bridge's patched
+    // fetch attach the session token automatically, and a raw fetch call
+    // is never something Remix's router can intercept as an internal
+    // route transition (unlike a Button url/Link, which it does — see
+    // the CSV-export bug this replaced).
+    setExportError(false);
+    setExportPending(true);
+    try {
+      const response = await fetch(`/api/scans/${scanId}/export`);
+      if (!response.ok) {
+        throw new Error(`Export failed with status ${response.status}`);
+      }
+      const disposition = response.headers.get("Content-Disposition") ?? "";
+      const filenameMatch = disposition.match(/filename="([^"]+)"/);
+      const filename = filenameMatch?.[1] ?? `merchgrid-catalog-audit-findings-${scanId}.csv`;
+
+      const blob = await response.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = blobUrl;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(blobUrl);
+    } catch (error) {
+      console.error("CSV export failed", error);
+      setExportError(true);
+    } finally {
+      setExportPending(false);
+    }
+  }
 
   const isTerminal = TERMINAL_STATUSES.has(summary.status);
 
@@ -579,15 +616,16 @@ export default function ScanDetail() {
           </Banner>
         )}
 
+        {exportError && (
+          <Banner tone="critical" onDismiss={() => setExportError(false)}>
+            The CSV export failed. Please try again.
+          </Banner>
+        )}
+
         <InlineStack align="end">
           <Button
-            onClick={() =>
-              window.open(
-                `/api/scans/${summary.id}/export`,
-                "_blank",
-                "noopener,noreferrer",
-              )
-            }
+            onClick={() => handleExportCsv(summary.id)}
+            loading={exportPending}
           >
             Export CSV
           </Button>
