@@ -580,7 +580,15 @@ export default function ScanDetail() {
         )}
 
         <InlineStack align="end">
-          <Button url={`/api/scans/${summary.id}/export`} external>
+          <Button
+            onClick={() =>
+              window.open(
+                `/api/scans/${summary.id}/export`,
+                "_blank",
+                "noopener,noreferrer",
+              )
+            }
+          >
             Export CSV
           </Button>
         </InlineStack>
