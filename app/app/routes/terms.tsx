@@ -36,7 +36,10 @@ export default function Terms() {
       </p>
 
       <h2>Governing law</h2>
-      <p>[YOUR JURISDICTION]</p>
+      <p>
+        These terms are governed by the laws of the State of Washington,
+        United States, without regard to its conflict-of-law principles.
+      </p>
 
       <h2>Contact</h2>
       <p>buffrstudio@gmail.com</p>
