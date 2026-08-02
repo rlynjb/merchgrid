@@ -2,7 +2,7 @@ export default function Terms() {
   return (
     <main style={{ maxWidth: 720, margin: "0 auto", padding: "2rem", fontFamily: "sans-serif", lineHeight: 1.6 }}>
       <h1>MerchGrid: Catalog Audit — Terms of Service</h1>
-      <p><em>Last updated: [DATE YOU PUBLISH THIS]</em></p>
+      <p><em>Last updated: August 2, 2026</em></p>
 
       <h2>The service</h2>
       <p>
@@ -39,7 +39,7 @@ export default function Terms() {
       <p>[YOUR JURISDICTION]</p>
 
       <h2>Contact</h2>
-      <p>[YOUR SUPPORT EMAIL]</p>
+      <p>buffrstudio@gmail.com</p>
     </main>
   );
 }

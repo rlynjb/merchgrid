@@ -2,7 +2,7 @@ export default function Privacy() {
   return (
     <main style={{ maxWidth: 720, margin: "0 auto", padding: "2rem", fontFamily: "sans-serif", lineHeight: 1.6 }}>
       <h1>MerchGrid: Catalog Audit — Privacy Policy</h1>
-      <p><em>Last updated: [DATE YOU PUBLISH THIS]</em></p>
+      <p><em>Last updated: August 2, 2026</em></p>
 
       <h2>What MerchGrid does</h2>
       <p>
@@ -59,7 +59,7 @@ export default function Privacy() {
       <p>We do not sell or share your data with third parties.</p>
 
       <h2>Contact</h2>
-      <p>Questions about this policy: [YOUR SUPPORT EMAIL]</p>
+      <p>Questions about this policy: buffrstudio@gmail.com</p>
     </main>
   );
 }

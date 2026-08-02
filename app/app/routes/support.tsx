@@ -4,8 +4,8 @@ export default function Support() {
       <h1>MerchGrid: Catalog Audit — Support</h1>
 
       <p>
-        Email <strong>[YOUR SUPPORT EMAIL]</strong> and we'll get back to
-        you, typically within [YOUR RESPONSE TIME, e.g. 2 business days].
+        Email <strong>buffrstudio@gmail.com</strong> and we'll get back to
+        you, typically within 24 hours.
       </p>
 
       <h2>Common questions</h2>
@@ -42,7 +42,7 @@ export default function Support() {
       <h3>I have a privacy or data-deletion request</h3>
       <p>
         See our <a href="/privacy">Privacy Policy</a>, or email
-        [YOUR SUPPORT EMAIL] directly to request deletion sooner than the
+        buffrstudio@gmail.com directly to request deletion sooner than the
         automatic post-uninstall window.
       </p>
     </main>
