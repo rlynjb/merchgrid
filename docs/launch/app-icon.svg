@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1200" viewBox="0 0 1200 1200">
+  <!-- Full-bleed background; Shopify applies its own corner masking -->
+  <rect x="0" y="0" width="1200" height="1200" fill="#4338CA"/>
+
+  <!-- 2x2 catalog grid (MerchGrid) -->
+  <rect x="270" y="270" width="300" height="300" rx="56" fill="#FFFFFF"/>
+  <rect x="630" y="270" width="300" height="300" rx="56" fill="#FFFFFF"/>
+  <rect x="270" y="630" width="300" height="300" rx="56" fill="#FFFFFF"/>
+  <rect x="630" y="630" width="300" height="300" rx="56" fill="#FFFFFF"/>
+
+  <!-- Verified/audit badge, overlapping the bottom-right cell corner -->
+  <circle cx="960" cy="960" r="150" fill="#4338CA"/>
+  <circle cx="960" cy="960" r="132" fill="#16A34A"/>
+  <polyline points="900,965 945,1010 1030,915"
+            fill="none" stroke="#FFFFFF" stroke-width="30"
+            stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
