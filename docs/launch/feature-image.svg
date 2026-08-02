@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900">
+  <rect x="0" y="0" width="1600" height="900" fill="#4338CA"/>
+
+  <!-- subtle background grid motif, low opacity, purely decorative -->
+  <rect x="1180" y="-80" width="260" height="260" rx="48" fill="#FFFFFF" opacity="0.05"/>
+  <rect x="1420" y="140" width="260" height="260" rx="48" fill="#FFFFFF" opacity="0.05"/>
+  <rect x="1300" y="640" width="260" height="260" rx="48" fill="#FFFFFF" opacity="0.05"/>
+  <rect x="-60" y="620" width="220" height="220" rx="42" fill="#FFFFFF" opacity="0.05"/>
+
+  <!-- icon mark, reused from the app icon, scaled to 280x280 -->
+  <g transform="translate(100,310)">
+    <rect x="0" y="0" width="280" height="280" rx="52" fill="#3730A3"/>
+    <rect x="63" y="63" width="70" height="70" rx="13" fill="#FFFFFF"/>
+    <rect x="147" y="63" width="70" height="70" rx="13" fill="#FFFFFF"/>
+    <rect x="63" y="147" width="70" height="70" rx="13" fill="#FFFFFF"/>
+    <rect x="147" y="147" width="70" height="70" rx="13" fill="#FFFFFF"/>
+    <circle cx="224" cy="224" r="35" fill="#3730A3"/>
+    <circle cx="224" cy="224" r="31" fill="#16A34A"/>
+    <polyline points="210,225 221,236 240,213" fill="none" stroke="#FFFFFF" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+
+  <!-- headline -->
+  <text x="460" y="400" font-family="Helvetica Neue, Arial, sans-serif" font-size="66" font-weight="700" fill="#FFFFFF">MerchGrid: Catalog Audit</text>
+
+  <!-- subheadline -->
+  <text x="462" y="460" font-family="Helvetica Neue, Arial, sans-serif" font-size="30" font-weight="400" fill="#E0E0FA">Find pricing, inventory &amp; SKU problems —</text>
+  <text x="462" y="500" font-family="Helvetica Neue, Arial, sans-serif" font-size="30" font-weight="400" fill="#E0E0FA">before they cost you sales.</text>
+
+  <!-- read-only badge pill -->
+  <rect x="462" y="540" width="470" height="66" rx="33" fill="#16A34A"/>
+  <text x="497" y="582" font-family="Helvetica Neue, Arial, sans-serif" font-size="26" font-weight="600" fill="#FFFFFF">✓ Read-only — never edits your store</text>
+</svg>
